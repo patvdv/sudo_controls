@@ -56,7 +56,7 @@ SFTP_ARGS="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -b - "
 # extra arguments/options for the SSH command
 SSH_ARGS="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -n"
 # location of the local SUDO controls directory
-LOCAL_DIR="/sysx/soft/sudo_controls"
+LOCAL_DIR="/etc/sudo_controls"
 # location of the remote SUDO controls directory
 REMOTE_DIR="/etc/sudo_controls/holding"
 # name of the user account performing the SUDO controls update
