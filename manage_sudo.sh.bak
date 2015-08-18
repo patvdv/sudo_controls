@@ -874,21 +874,6 @@ do
     esac    
 done
 
-# check for configuration files (local overrides local)
-if [[ -r "${SCRIPT_DIR}/${GLOBAL_CONFIG_FILE}" || -r "${SCRIPT_DIR}/${LOCAL_CONFIG_FILE}" ]]
-then
-    if [[ -r "${SCRIPT_DIR}/${GLOBAL_CONFIG_FILE}" ]]
-    then    
-        . "${SCRIPT_DIR}/${GLOBAL_CONFIG_FILE}"
-    fi
-    if [[ -r "${SCRIPT_DIR}/${LOCAL_CONFIG_FILE}" ]]
-    then
-        . "${SCRIPT_DIR}/${LOCAL_CONFIG_FILE}"
-    fi
-else
-    print -u2 "ERROR: could not find global or local configuration file"
-fi  
-
 # startup checks
 check_params && check_config && check_setup && check_logging
 
@@ -1017,7 +1002,7 @@ case ${ARG_ACTION} in
         ;;
     4)  # apply SUDO controls locally (root user)
         log "ACTION: apply SUDO controls locally"
-        log "$(${LOCAL_DIR}/update_sudo.pl ${SUDO_UPDATE_OPTS})"
+        log "$(${LOCAL_DIR}/update_sudo.pl -v)"
         # no error checking possible here due to log(), done in called script
         log "finished applying SUDO controls locally"
         ;;

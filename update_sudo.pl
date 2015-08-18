@@ -29,6 +29,8 @@
 #******************************************************************************
 
 use strict;
+use Net::Domain qw(hostfqdn hostname);
+use POSIX qw(uname);
 use Data::Dumper;
 use Getopt::Long;
 use Pod::Usage;
@@ -42,7 +44,7 @@ use File::Temp qw(tempfile);
 
 # ------------------------- CONFIGURATION starts here -------------------------
 # define the V.R.F (version/release/fix)
-my $MY_VRF = "1.0.3";
+my $MY_VRF = "1.1.0";
 # name of global configuration file (no path, must be located in the script directory)
 my $global_config_file = "update_sudo.conf";
 # name of localized configuration file (no path, must be located in the script directory)
@@ -51,7 +53,7 @@ my $local_config_file = "update_sudo.conf.local";
 my $selinux_context = "etc_t";
 # ------------------------- CONFIGURATION ends here --------------------------- 
 # initialize variables
-my ($debug, $verbose, $preview, $global) = (0,0,0,0);
+my ($debug, $verbose, $preview, $global, $use_fqdn) = (0,0,0,0,0);
 my (@config_files, $fragments_dir, $visudo_bin, $immutable_self_file, $immutable_self_cmd);
 my (%options, %aliases, %frags, @grants);
 my ($os, $host, $hostname, $run_dir);
@@ -85,8 +87,8 @@ sub parse_config_file {
     my $config_file = shift;
 
     unless (open (CONF_FD, "<", $config_file)) {
-        do_log ("ERROR: failed to open the configuration file ${config_file} [$! $hostname]") and \
-        exit (1);
+        do_log ("ERROR: failed to open the configuration file ${config_file} [$! $hostname]") 
+        and exit (1);
     }
     while (<CONF_FD>) {
         chomp ();
@@ -94,6 +96,10 @@ sub parse_config_file {
         if (/^\s*$/ || /^#/) {
             next;
         } else {
+            if (/^\s*use_fqdn\s*=\s*([0-9]+)\s*$/) {
+                $use_fqdn = $1;
+                do_log ("DEBUG: picking up setting: use_fqdn=${use_fqdn}");
+            }
             if (/^\s*fragments_dir\s*=\s*([0-9A-Za-z_\-\.\/~]+)\s*$/) {
                 $fragments_dir = $1;
                 do_log ("DEBUG: picking up setting: fragments_dir=${fragments_dir}");
@@ -226,12 +232,10 @@ unless ($preview and $global) {
     }
 }
 # where am I?
-$host = `hostname`;
-chomp ($host);
-if ($host =~ /\./) {
-     ($hostname) = $host =~ /(.*?)\./;
+unless ($use_fqdn) {
+    $hostname = hostfqdn();
 } else {
-     $hostname = $host;
+    $hostname = hostname();
 }
 $0 =~ /^(.+[\\\/])[^\\\/]+[\\\/]*$/;
 my $run_dir = $1 || ".";
@@ -404,7 +408,7 @@ foreach my $frag_file (@frag_files) {
         };
     } else {
         # strip off path from file name for hash key
-		$frag_file = fileparse ($frag_file, qr/\.[^.]*/);
+        $frag_file = fileparse ($frag_file, qr/\.[^.]*/);
         do_log ("INFO: fragment file $frag_file contains only 1 fragment on $hostname");
         $frags{$frag_file} = join (/\n/, @frag_file);
     }   
@@ -733,3 +737,4 @@ S<       >Show version of the script.
 @(#) 2014-12-16: VRF 1.0.1: added SELinux context [Patrick Van der Veken]
 @(#) 2014-12-16: VRF 1.0.2: fixed a problem with the immutable self fragment code [Patrick Van der Veken]
 @(#) 2015-02-02: VRF 1.0.3: changed 'basename' into 'fileparse' call to support fragment files with extensions [Patrick Van der Veken]
+@(#) 2015-08-18: VRF 1.1.0: replace uname/hostname syscalls, now support for FQDN via $use_fqdn, other fixes [Patrick Van der Veken]
