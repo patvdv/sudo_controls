@@ -55,7 +55,7 @@ MY_VRF="1.2.0"
 # name of the global configuration file (script)
 GLOBAL_CONFIG_FILE="manage_sudo.conf"
 # name of the local configuration file (script)
-LOCAL_CONFIG_FILE="manage_sudonf.local"
+LOCAL_CONFIG_FILE="manage_sudo.conf.local"
 # location of temporary working storage
 TMP_DIR="/var/tmp"
 # ------------------------- CONFIGURATION ends here ---------------------------
