@@ -44,7 +44,7 @@ use File::Temp qw(tempfile);
 
 # ------------------------- CONFIGURATION starts here -------------------------
 # define the V.R.F (version/release/fix)
-my $MY_VRF = "1.1.0";
+my $MY_VRF = "1.1.1";
 # name of global configuration file (no path, must be located in the script directory)
 my $global_config_file = "update_sudo.conf";
 # name of localized configuration file (no path, must be located in the script directory)
@@ -221,31 +221,14 @@ if ($options{'debug'}) {
 }
 $verbose = 1 if ($options{'verbose'});
 
-# what am I?
-$os = `uname`;
-chomp ($os);
-# who am I?
-unless ($preview and $global) {
-    if ($< != 0) {
-        do_log ("ERROR: script must be invoked as user 'root' [$hostname]") 
-        and exit (1);
-    }
-}
-# where am I?
-unless ($use_fqdn) {
-    $hostname = hostfqdn();
-} else {
-    $hostname = hostname();
-}
-$0 =~ /^(.+[\\\/])[^\\\/]+[\\\/]*$/;
-my $run_dir = $1 || ".";
-$run_dir =~ s#/$##;     # remove trailing slash
-
-do_log ("INFO: runtime info: ".getpwuid ($<)."; ${hostname}\@${run_dir}; Perl v$]"); 
-
 # -----------------------------------------------------------------------------
 # check/process configuration files, environment checks
 # -----------------------------------------------------------------------------
+
+# where am I? (1/2)
+$0 =~ /^(.+[\\\/])[^\\\/]+[\\\/]*$/;
+my $run_dir = $1 || ".";
+$run_dir =~ s#/$##;     # remove trailing slash
 
 # don't do anything without configuration file(s)
 do_log ("INFO: parsing configuration file(s) ...");
@@ -279,6 +262,25 @@ unless ($preview and $global) {
         and exit (1);
     }
 }
+
+# what am I?
+@uname = uname();
+$os = $uname[0];
+# who am I?
+unless ($preview and $global) {
+    if ($< != 0) {
+        do_log ("ERROR: script must be invoked as user 'root' [$hostname]") 
+        and exit (1);
+    }
+}
+# where am I? (2/2)
+if ($use_fqdn) {
+    $hostname = hostfqdn();
+} else {
+    $hostname = hostname();
+}
+
+do_log ("INFO: runtime info: ".getpwuid ($<)."; ${hostname}\@${run_dir}; Perl v$]");
 
 # -----------------------------------------------------------------------------
 # read aliases for teams, servers and users
@@ -632,7 +634,7 @@ exit (0);
 #******************************************************************************
 # End of SCRIPT
 #******************************************************************************
-
+__END__
 #******************************************************************************
 # POD
 #******************************************************************************
@@ -678,6 +680,8 @@ Use F<update_sudo.conf.local> for localized settings per host. Settings in the l
 Following settings must be configured:
 
 =over 2
+
+=item * B<use_fqdn>             : whether to use short or FQDN host names
 
 =item * B<fragments_dir>        : target directory for SUDO fragments files
 
@@ -738,3 +742,4 @@ S<       >Show version of the script.
 @(#) 2014-12-16: VRF 1.0.2: fixed a problem with the immutable self fragment code [Patrick Van der Veken]
 @(#) 2015-02-02: VRF 1.0.3: changed 'basename' into 'fileparse' call to support fragment files with extensions [Patrick Van der Veken]
 @(#) 2015-08-18: VRF 1.1.0: replace uname/hostname syscalls, now support for FQDN via $use_fqdn, other fixes [Patrick Van der Veken]
+@(#) 2015-08-26: VRF 1.1.1: small and not so small fixes [Patrick Van der Veken]

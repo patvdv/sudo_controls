@@ -38,6 +38,9 @@
 # @(#) 2015-08-18: moved essential configuration items of the script into a
 # @(#)             separate configuration file (global/local), fix in 
 # @(#)             wait_for_children (VRF 1.2.0) [Patrick Van der Veken]
+# @(#) 2015-08-26: added DO_SFTP_CHMOD configuration parameter to avoid
+# @(#)             setstat failures with sftp_file() when remote file
+# @(#)             permissions do not allow (VRF 1.2.1) [Patrick Van der Veken]
 # -----------------------------------------------------------------------------
 # DO NOT CHANGE THIS FILE UNLESS YOU KNOW WHAT YOU ARE DOING!
 #******************************************************************************
@@ -51,7 +54,7 @@
 # or LOCAL_CONFIG_FILE instead
 
 # define the V.R.F (version/release/fix)
-MY_VRF="1.2.0"
+MY_VRF="1.2.1"
 # name of the global configuration file (script)
 GLOBAL_CONFIG_FILE="manage_sudo.conf"
 # name of the local configuration file (script)
@@ -109,6 +112,12 @@ fi
 if [[ -z "${REMOTE_DIR}" ]]
 then
     print -u2 "ERROR: you must define a value for the REMOTE_DIR setting in $0"
+    exit 1
+fi
+# DO_SFTP_CHMOD
+if [[ -z "${DO_SFTP_CHMOD}" ]]
+then
+    print -u2 "ERROR: you must define a value for the DO_SFTP_CHMOD setting in $0"
     exit 1
 fi
 # SUDO_UPDATE_USER
@@ -665,17 +674,22 @@ TRANSFER_FILE="${TRANSFER_FILE%!*}"
 SOURCE_FILE="${TRANSFER_FILE##*/}"
 OLD_PWD=$(pwd) && cd ${TRANSFER_DIR}
 
-# transfer, chmod the file to/on the target server (keep STDERR)
-# chmod is not possible in the used security model as files should be 
-# owned by root, so must be disabled. This requires a fix operation right
-# after the very first initial SUDO controls distribution:
-# ./manage_sudo.sh --fix-local --fix-dir=/etc/sudo_controls
-sftp ${SFTP_ARGS} ${SUDO_TRANSFER_USER}@${TRANSFER_HOST} >/dev/null <<EOT
+# transfer, (possibly) chmod the file to/on the target server (keep STDERR)
+if (( DO_SFTP_CHMOD  ))
+then
+    sftp ${SFTP_ARGS} ${SSH_TRANSFER_USER}@${TRANSFER_HOST} >/dev/null <<EOT
 cd ${REMOTE_DIR}
 put ${SOURCE_FILE}
 chmod ${TRANSFER_PERMS} ${SOURCE_FILE}
 EOT
-SFTP_RC=$?
+    SFTP_RC=$?
+else
+    sftp ${SFTP_ARGS} ${SSH_TRANSFER_USER}@${TRANSFER_HOST} >/dev/null <<EOT
+cd ${REMOTE_DIR}
+put ${SOURCE_FILE}
+EOT
+    SFTP_RC=$?
+fi
 
 cd ${OLD_PWD}
 
