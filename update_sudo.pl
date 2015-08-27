@@ -44,7 +44,7 @@ use File::Temp qw(tempfile);
 
 # ------------------------- CONFIGURATION starts here -------------------------
 # define the V.R.F (version/release/fix)
-my $MY_VRF = "1.1.1";
+my $MY_VRF = "1.1.2";
 # name of global configuration file (no path, must be located in the script directory)
 my $global_config_file = "update_sudo.conf";
 # name of localized configuration file (no path, must be located in the script directory)
@@ -55,7 +55,7 @@ my $selinux_context = "etc_t";
 # initialize variables
 my ($debug, $verbose, $preview, $global, $use_fqdn) = (0,0,0,0,0);
 my (@config_files, $fragments_dir, $visudo_bin, $immutable_self_file, $immutable_self_cmd);
-my (%options, %aliases, %frags, @grants);
+my (%options, @uname, %aliases, %frags, @grants);
 my ($os, $host, $hostname, $run_dir);
 my ($selinux_status, $selinux_context, $has_selinux) = ("","",0);
 $|++;
@@ -743,3 +743,4 @@ S<       >Show version of the script.
 @(#) 2015-02-02: VRF 1.0.3: changed 'basename' into 'fileparse' call to support fragment files with extensions [Patrick Van der Veken]
 @(#) 2015-08-18: VRF 1.1.0: replace uname/hostname syscalls, now support for FQDN via $use_fqdn, other fixes [Patrick Van der Veken]
 @(#) 2015-08-26: VRF 1.1.1: small and not so small fixes [Patrick Van der Veken]
+@(#) 2015-08-27: VRF 1.1.2: small fix [Patrick Van der Veken]
