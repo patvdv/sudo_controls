@@ -41,7 +41,8 @@
 # @(#) 2015-08-26: added DO_SFTP_CHMOD configuration parameter to avoid
 # @(#)             setstat failures with sftp_file() when remote file
 # @(#)             permissions do not allow (VRF 1.2.1) [Patrick Van der Veken]
-# @(#) 2015-08-28: check_config() update (VRF 1.2.2) [Patrick Van der Veken]
+# @(#) 2015-08-27: smmall fix in sftp_file() (VRF 1.2.2) [Patrick Van der Veken]
+# @(#) 2015-08-28: check_config() update (VRF 1.2.3) [Patrick Van der Veken]
 # -----------------------------------------------------------------------------
 # DO NOT CHANGE THIS FILE UNLESS YOU KNOW WHAT YOU ARE DOING!
 #******************************************************************************
@@ -55,7 +56,7 @@
 # or LOCAL_CONFIG_FILE instead
 
 # define the V.R.F (version/release/fix)
-MY_VRF="1.2.2"
+MY_VRF="1.2.3"
 # name of the global configuration file (script)
 GLOBAL_CONFIG_FILE="manage_sudo.conf"
 # name of the local configuration file (script)
@@ -678,14 +679,14 @@ OLD_PWD=$(pwd) && cd ${TRANSFER_DIR}
 # transfer, (possibly) chmod the file to/on the target server (keep STDERR)
 if (( DO_SFTP_CHMOD ))
 then
-    sftp ${SFTP_ARGS} ${SSH_TRANSFER_USER}@${TRANSFER_HOST} >/dev/null <<EOT
+    sftp ${SFTP_ARGS} ${SUDO_TRANSFER_USER}@${TRANSFER_HOST} >/dev/null <<EOT
 cd ${REMOTE_DIR}
 put ${SOURCE_FILE}
 chmod ${TRANSFER_PERMS} ${SOURCE_FILE}
 EOT
     SFTP_RC=$?
 else
-    sftp ${SFTP_ARGS} ${SSH_TRANSFER_USER}@${TRANSFER_HOST} >/dev/null <<EOT
+    sftp ${SFTP_ARGS} ${SUDO_TRANSFER_USER}@${TRANSFER_HOST} >/dev/null <<EOT
 cd ${REMOTE_DIR}
 put ${SOURCE_FILE}
 EOT
