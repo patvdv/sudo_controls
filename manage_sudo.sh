@@ -41,6 +41,7 @@
 # @(#) 2015-08-26: added DO_SFTP_CHMOD configuration parameter to avoid
 # @(#)             setstat failures with sftp_file() when remote file
 # @(#)             permissions do not allow (VRF 1.2.1) [Patrick Van der Veken]
+# @(#) 2015-08-28: check_config() update (VRF 1.2.2) [Patrick Van der Veken]
 # -----------------------------------------------------------------------------
 # DO NOT CHANGE THIS FILE UNLESS YOU KNOW WHAT YOU ARE DOING!
 #******************************************************************************
@@ -54,7 +55,7 @@
 # or LOCAL_CONFIG_FILE instead
 
 # define the V.R.F (version/release/fix)
-MY_VRF="1.2.1"
+MY_VRF="1.2.2"
 # name of the global configuration file (script)
 GLOBAL_CONFIG_FILE="manage_sudo.conf"
 # name of the local configuration file (script)
@@ -98,26 +99,26 @@ then
     SUDO_TRANSFER_USER="${LOGNAME}"
     if [[ -z "${SUDO_TRANSFER_USER}" ]]
     then
-        print -u2 "ERROR: unable to set a value for SUDO_TRANSFER_USER in $0"
+        print -u2 "ERROR: no value for the SUDO_TRANSFER_USER setting in the configuration file"
         exit 1
     fi
 fi
 # LOCAL_DIR
 if [[ -z "${LOCAL_DIR}" ]]
 then
-    print -u2 "ERROR: you must define a value for the LOCAL_DIR setting in $0"
+    print -u2 "ERROR: no value for the LOCAL_DIR setting in the configuration file"
     exit 1
 fi
 # REMOTE_DIR
 if [[ -z "${REMOTE_DIR}" ]]
 then
-    print -u2 "ERROR: you must define a value for the REMOTE_DIR setting in $0"
+    print -u2 "ERROR: no value for the REMOTE_DIR setting in the configuration file"
     exit 1
 fi
 # DO_SFTP_CHMOD
 if [[ -z "${DO_SFTP_CHMOD}" ]]
 then
-    print -u2 "ERROR: you must define a value for the DO_SFTP_CHMOD setting in $0"
+    print -u2 "ERROR:no value for the DO_SFTP_CHMOD setting in the configuration file"
     exit 1
 fi
 # SUDO_UPDATE_USER
@@ -126,26 +127,26 @@ then
     SUDO_UPDATE_USER="${LOGNAME}"
     if [[ -z "${SUDO_UPDATE_USER}" ]]
     then
-        print -u2 "ERROR: unable to set a value for SUDO_UPDATE_USER in $0"
+        print -u2 "ERROR: no value for the SUDO_UPDATE_USER setting in the configuration file"
         exit 1
     fi
 fi
 # VISUDO_BIN
 if [[ -z "${VISUDO_BIN}" ]]
 then
-    print -u2 "ERROR: you must define a value for the VISUDO_BIN setting in $0"
+    print -u2 "ERROR: no value for the VISUDO_BIN setting in the configuration file"
     exit 1
 fi
 # MAX_BACKGROUND_PROCS
 if [[ -z "${MAX_BACKGROUND_PROCS}" ]]
 then
-    print -u2 "ERROR: you must define a value for the MAX_BACKGROUND_PROCS setting in $0"
+    print -u2 "ERROR: no value for the MAX_BACKGROUND_PROCS setting in the configuration file"
     exit 1
 fi
 # BACKUP_DIR
 if [[ -z "${BACKUP_DIR}" ]]
 then
-    print -u2 "ERROR: you must define a value for the BACKUP_DIR setting in $0"
+    print -u2 "ERROR: no value for the BACKUP_DIR setting in the configuration file"
     exit 1
 fi
 
@@ -675,7 +676,7 @@ SOURCE_FILE="${TRANSFER_FILE##*/}"
 OLD_PWD=$(pwd) && cd ${TRANSFER_DIR}
 
 # transfer, (possibly) chmod the file to/on the target server (keep STDERR)
-if (( DO_SFTP_CHMOD  ))
+if (( DO_SFTP_CHMOD ))
 then
     sftp ${SFTP_ARGS} ${SSH_TRANSFER_USER}@${TRANSFER_HOST} >/dev/null <<EOT
 cd ${REMOTE_DIR}
