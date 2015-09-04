@@ -43,6 +43,7 @@
 # @(#)             permissions do not allow (VRF 1.2.1) [Patrick Van der Veken]
 # @(#) 2015-08-27: smmall fix in sftp_file() (VRF 1.2.2) [Patrick Van der Veken]
 # @(#) 2015-08-28: check_config() update (VRF 1.2.3) [Patrick Van der Veken]
+# @(#) 2015-09-04: fix in wait_for_children (VRF 1.2.4) [Patrick Van der Veken]
 # -----------------------------------------------------------------------------
 # DO NOT CHANGE THIS FILE UNLESS YOU KNOW WHAT YOU ARE DOING!
 #******************************************************************************
@@ -56,7 +57,7 @@
 # or LOCAL_CONFIG_FILE instead
 
 # define the V.R.F (version/release/fix)
-MY_VRF="1.2.3"
+MY_VRF="1.2.4"
 # name of the global configuration file (script)
 GLOBAL_CONFIG_FILE="manage_sudo.conf"
 # name of the local configuration file (script)
@@ -751,13 +752,16 @@ do
             set -- "$@" "${PID}"
         # wait for sigchild, catching child exit codes is unreliable because
         # the child might have already ended before we get here (caveat emptor)
-        elif $(wait ${PID})
-        then
-            log "child process ${PID} exited [NOK]"
-            WAIT_ERRORS=$(( WAIT_ERRORS + 1 ))
         else
-            log "child process ${PID} exited [OK]"
-        fi
+			wait ${PID}
+			if (( $? ))
+			then
+				log "child process ${PID} exited [NOK]"
+				WAIT_ERRORS=$(( WAIT_ERRORS + 1 ))
+			else
+				log "child process ${PID} exited [OK]"
+			fi
+		fi
     done
     # break loop if we have no child PIDs left
     (($# > 0)) || break
