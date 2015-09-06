@@ -22,9 +22,9 @@
 # EXPECTS: (see --help for more options)
 # REQUIRES: check_config(), check_logging(), check_params(), check_root_user(),
 #           check_setup(), check_syntax(), count_fields(), die(), display_usage(), 
-#           distribute2host(), do_cleanup(), fix2host(), log(), resolve_host(), 
-#           sftp_file(), update2host(), validate_syntax(), wait_for_children(), 
-#           warn()
+#           distribute2host(), do_cleanup(), fix2host(), log(), logc(), 
+#           resolve_host(), sftp_file(), update2host(), validate_syntax(), 
+#           wait_for_children(), warn()
 #           For other pre-requisites see the documentation in display_usage()
 #
 # @(#) HISTORY:
@@ -44,6 +44,8 @@
 # @(#) 2015-08-27: smmall fix in sftp_file() (VRF 1.2.2) [Patrick Van der Veken]
 # @(#) 2015-08-28: check_config() update (VRF 1.2.3) [Patrick Van der Veken]
 # @(#) 2015-09-04: fix in wait_for_children (VRF 1.2.4) [Patrick Van der Veken]
+# @(#) 2015-09-06: proper error checking in fix2host(), update2host() by using
+# @(#)             logc() (VRF 1.3.0) [Patrick Van der Veken
 # -----------------------------------------------------------------------------
 # DO NOT CHANGE THIS FILE UNLESS YOU KNOW WHAT YOU ARE DOING!
 #******************************************************************************
@@ -57,7 +59,7 @@
 # or LOCAL_CONFIG_FILE instead
 
 # define the V.R.F (version/release/fix)
-MY_VRF="1.2.4"
+MY_VRF="1.3.0"
 # name of the global configuration file (script)
 GLOBAL_CONFIG_FILE="manage_sudo.conf"
 # name of the local configuration file (script)
@@ -77,8 +79,10 @@ FIX_CREATE=0
 CAN_CHECK_SYNTAX=1
 CAN_REMOVE_TEMP=1
 TMP_FILE="${TMP_DIR}/.${SCRIPT_NAME}.$$"
+TMP_RC_FILE="${TMP_DIR}/.${SCRIPT_NAME}.rc.$$"
 # command-line parameters
 ARG_ACTION=0            # default is nothing
+ARG_FIX_DIR=""          # location of SUDO controls directory
 ARG_LOG_DIR=""          # location of the log directory (~root etc)
 ARG_LOCAL_DIR=""        # location of the local SUDO control files
 ARG_REMOTE_DIR=""       # location of the remote SUDO control files
@@ -275,7 +279,7 @@ do
         exit 1    
     fi
 done
-# check for basic SUDO control file(s): targets, /var/tmp/targets.$USER  (or $TMP_FILE)
+# check for basic SUDO control file(s): targets, /var/tmp/targets.$USER (or $TMP_FILE)
 if (( ARG_ACTION == 1 || ARG_ACTION == 2 || ARG_ACTION == 6 ))
 then
     if [[ -z "${ARG_TARGETS}" ]]
@@ -471,7 +475,7 @@ return 0
 function distribute2host
 {
 SERVER="$1"
-
+ERROR_COUNT=0
 # convert line to hostname
 SERVER=${SERVER%%;*}
 resolve_host ${SERVER}
@@ -498,6 +502,7 @@ do
         log "transferred ${FILE%!*} to ${SERVER}:${REMOTE_DIR}"
     else
         warn "failed to transfer ${FILE%!*} to ${SERVER}:${REMOTE_DIR} [RC=${COPY_RC}]"
+        ERROR_COUNT=$(( ERROR_COUNT + 1 ))
     fi
 done
 # 2) fragments files
@@ -524,6 +529,7 @@ then
         log "transferred ${TMP_MERGE_FILE} to ${SERVER}:${REMOTE_DIR}"
     else
         warn "failed to transfer ${TMP_MERGE_FILE%!*} to ${SERVER}:${REMOTE_DIR} [RC=${COPY_RC}]"
+        ERROR_COUNT=$(( ERROR_COUNT + 1 ))
     fi
     [[ -d ${TMP_WORK_DIR} ]] && rm -rf ${TMP_WORK_DIR} 2>/dev/null
 else
@@ -534,10 +540,11 @@ else
         log "transferred ${FRAGS_FILE} to ${SERVER}:${REMOTE_DIR}"
     else
         warn "failed to transfer ${FRAGS_FILE} to ${SERVER}:${REMOTE_DIR} [RC=${COPY_RC}]"
+        ERROR_COUNT = $(( ERROR_COUNT + 1 ))
     fi
 fi
 
-return 0
+return ${ERROR_COUNT}
 }
 
 # -----------------------------------------------------------------------------
@@ -548,6 +555,7 @@ log "performing cleanup ..."
 # remove temporary file(s)
 [[ -f ${TMP_FILE} ]] && rm -f ${TMP_FILE} >/dev/null 2>&1
 [[ -f ${TMP_MERGE_FILE} ]] && rm -f ${TMP_MERGE_FILE} >/dev/null 2>&1
+[[ -f ${TMP_RC_FILE} ]] && rm -f ${TMP_RC_FILE} >/dev/null 2>&1
 # temporary scan file (syntax check)
 if (( CAN_REMOVE_TEMP ))
 then
@@ -580,25 +588,35 @@ log "fixing sudo controls on ${SERVER} ..."
 if [[ -z "${SUDO_UPDATE_USER}" ]]
 then
     # own user w/ sudo
-    log "$(ssh ${SSH_ARGS} ${SERVER} sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --fix-local --fix-dir=${SERVER_DIR})"
+    ( RC=0; ssh ${SSH_ARGS} ${SERVER} sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --fix-local --fix-dir=${SERVER_DIR};
+      print "$?" > ${TMP_RC_FILE}; exit
+    ) 2>&1 | logc
 elif [[ "${SUDO_UPDATE_USER}" != "root" ]]
 then
     # other user w/ sudo
-    log "$(ssh ${SSH_ARGS} ${SUDO_UPDATE_USER}@${SERVER} sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --fix-local --fix-dir=${SERVER_DIR})"
+    ( RC=0; ssh ${SSH_ARGS} ${SUDO_UPDATE_USER}@${SERVER} sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --fix-local --fix-dir=${SERVER_DIR};
+      print "$?" > ${TMP_RC_FILE}; exit
+    ) 2>&1 | logc
 else
     # root user w/o sudo
-    log "$(ssh ${SSH_ARGS} ${SUDO_UPDATE_USER}@${SERVER} ${REMOTE_DIR}/${SCRIPT_NAME} --fix-local --fix-dir=${SERVER_DIR})"
+    ( RC=0; ssh ${SSH_ARGS} root@${SERVER} ${REMOTE_DIR}/${SCRIPT_NAME} --fix-local --fix-dir=${SERVER_DIR};
+      print "$?" > ${TMP_RC_FILE}; exit
+    ) 2>&1 | logc
 fi
-# no error checking possible here due to log(), done in called script
 
-return 0
+# fetch return code from subshell
+RC="$(< ${TMP_RC_FILE})"
+
+return ${RC}
 }
 
 # -----------------------------------------------------------------------------
+# log an INFO: message (via ARG).
 function log
 {
 NOW="$(date '+%d-%h-%Y %H:%M:%S')"
 
+# log an INFO: message (via ARG).
 if [[ -n "$1" ]]
 then
     if (( ARG_LOG ))
@@ -611,6 +629,63 @@ then
         done
     fi
     if (( ARG_VERBOSE ))
+    then
+        print - "$*" | while read LOG_LINE
+        do
+            # filter leading 'INFO:'
+            LOG_LINE="${LOG_LINE#INFO: *}"
+            print "INFO:" "${LOG_LINE}"
+        done
+    fi
+fi
+
+return 0
+}
+
+# -----------------------------------------------------------------------------
+# log an INFO: message (via STDIN). Do not use when STDIN is still open
+function logc
+{
+NOW="$(date '+%d-%h-%Y %H:%M:%S')"
+LOG_STDIN=""
+
+# process STDIN (if any)
+[[ ! -t 0 ]] && LOG_STDIN="$(cat)"
+if [[ -n "${LOG_STDIN}" ]]
+then
+    if (( ARG_LOG ))
+    then
+        print - "${LOG_STDIN}" | while read LOG_LINE
+        do
+            # filter leading 'INFO:'
+            LOG_LINE="${LOG_LINE#INFO: *}"
+            print "${NOW}: INFO: [$$]:" "${LOG_LINE}" >> ${LOG_FILE}
+        done
+    fi
+    if (( ARG_VERBOSE ))
+    then
+        print - "${LOG_STDIN}" | while read LOG_LINE
+        do
+            # filter leading 'INFO:'
+            LOG_LINE="${LOG_LINE#INFO: *}"
+            print "INFO:" "${LOG_LINE}"
+        done
+    fi
+fi
+
+# process ARG (if any)
+if [[ -n "$1" ]]
+then
+    if (( ARG_LOG != 0 ))
+    then
+        print - "$*" | while read LOG_LINE
+        do
+            # filter leading 'INFO:'
+            LOG_LINE="${LOG_LINE#INFO: *}"
+            print "${NOW}: INFO: [$$]:" "${LOG_LINE}" >> ${LOG_FILE}
+        done
+    fi
+    if (( ARG_VERBOSE != 0 ))
     then
         print - "$*" | while read LOG_LINE
         do
@@ -701,6 +776,7 @@ return ${SFTP_RC}
 
 # -----------------------------------------------------------------------------
 # update SUDO controls on a single host/client 
+# !! requires appropriate 'sudo' rules on remote client for privilege elevation
 function update2host
 {
 SERVER="$1"
@@ -718,18 +794,26 @@ log "setting sudo controls on ${SERVER} ..."
 if [[ -z "${SUDO_UPDATE_USER}" ]]
 then
     # own user w/ sudo
-    log "$(ssh ${SSH_ARGS} ${SERVER} sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --update)"
+    ( RC=0; ssh ${SSH_ARGS} ${SERVER} sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --update;
+      print "$?" > ${TMP_RC_FILE}; exit
+    ) 2>&1 | logc
 elif [[ "${SUDO_UPDATE_USER}" != "root" ]]
 then
     # other user w/ sudo
-    log "$(ssh ${SSH_ARGS} ${SUDO_UPDATE_USER}@${SERVER} sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --update)"
+    ( RC=0; ssh ${SSH_ARGS} ${SUDO_UPDATE_USER}@${SERVER} sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --update;
+      print "$?" > ${TMP_RC_FILE}; exit
+    ) 2>&1 | logc
 else
     # root user w/o sudo
-    log "$(ssh ${SSH_ARGS} ${SUDO_UPDATE_USER}@${SERVER} ${REMOTE_DIR}/${SCRIPT_NAME} --update)"
+    ( RC=0; ssh ${SSH_ARGS} root@${SERVER} ${REMOTE_DIR}/${SCRIPT_NAME} --update;
+      print "$?" > ${TMP_RC_FILE}; exit
+    ) 2>&1 | logc
 fi
-# no error checking possible here due to log(), done in called script
 
-return 0
+# fetch return code from subshell
+RC="$(< ${TMP_RC_FILE})"
+
+return ${RC}
 }
 
 # -----------------------------------------------------------------------------
@@ -753,15 +837,16 @@ do
         # wait for sigchild, catching child exit codes is unreliable because
         # the child might have already ended before we get here (caveat emptor)
         else
-			wait ${PID}
-			if (( $? ))
-			then
-				log "child process ${PID} exited [NOK]"
-				WAIT_ERRORS=$(( WAIT_ERRORS + 1 ))
-			else
-				log "child process ${PID} exited [OK]"
-			fi
-		fi
+            wait ${PID}
+            RC=$?
+            if (( ${RC} ))
+            then
+                log "child process ${PID} exited [RC=${RC}]"
+                WAIT_ERRORS=$(( WAIT_ERRORS + 1 ))
+            else
+                log "child process ${PID} exited [RC=${RC}]"
+            fi
+        fi
     done
     # break loop if we have no child PIDs left
     (($# > 0)) || break
@@ -923,6 +1008,7 @@ log "runtime info: LOCAL_DIR is set to: ${LOCAL_DIR}"
 case ${ARG_ACTION} in
     1)  # apply SUDO controls remotely
         log "ACTION: apply SUDO controls remotely"
+        check_root_user && die "must NOT be run as user 'root'"
         # build clients list (in array)
         cat "${TARGETS_FILE}" | grep -v -E -e '^#' -e '^$' |\
         {
@@ -962,6 +1048,7 @@ case ${ARG_ACTION} in
         ;;
     2)  # copy/distribute SUDO controls
         log "ACTION: copy/distribute SUDO controls"
+        check_root_user && die "must NOT be run as user 'root'"
         # build clients list (in array)
         cat "${TARGETS_FILE}" | grep -v -E -e '^#' -e '^$' |\
         {
@@ -1037,9 +1124,17 @@ case ${ARG_ACTION} in
         ;;
     4)  # apply SUDO controls locally (root user)
         log "ACTION: apply SUDO controls locally"
-        log "$(${LOCAL_DIR}/update_sudo.pl ${SUDO_UPDATE_OPTS})"
-        # no error checking possible here due to log(), done in called script
-        log "finished applying SUDO controls locally"
+        ( RC=0; ${LOCAL_DIR}/update_sudo.pl ${SUDO_UPDATE_OPTS};
+          print "$?" > ${TMP_RC_FILE}; exit
+        ) 2>&1 | logc
+        # fetch return code from subshell
+        RC="$(< ${TMP_RC_FILE})"
+        if (( RC ))
+        then
+            log "failed to apply SUDO controls locally [RC=${RC}]"
+        else
+            log "finished applying SUDO controls locally [RC=${RC}]"     
+        fi
         ;;
     5)  # fix directory structure/perms/ownerships
         log "ACTION: fix local SUDO controls repository"
