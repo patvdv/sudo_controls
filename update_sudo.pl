@@ -57,7 +57,7 @@ my ($debug, $verbose, $preview, $global, $use_fqdn) = (0,0,0,0,0);
 my (@config_files, $fragments_dir, $visudo_bin, $immutable_self_file, $immutable_self_cmd);
 my (%options, @uname, %aliases, %frags, @grants);
 my ($os, $host, $hostname, $run_dir);
-my ($selinux_status, $selinux_context, $has_selinux) = ("","",0);
+my ($selinux_status, $has_selinux) = ("",0);
 $|++;
 
 
