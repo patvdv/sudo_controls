@@ -44,7 +44,7 @@ use File::Temp qw(tempfile);
 
 # ------------------------- CONFIGURATION starts here -------------------------
 # define the V.R.F (version/release/fix)
-my $MY_VRF = "1.1.3";
+my $MY_VRF = "1.1.4";
 # name of global configuration file (no path, must be located in the script directory)
 my $global_config_file = "update_sudo.conf";
 # name of localized configuration file (no path, must be located in the script directory)
@@ -587,7 +587,7 @@ foreach my $grant (@grants) {
                 };
                 $os eq "Linux" && do { 
                     if ($has_selinux) {
-                        system ("/usr/bin/chcon -t $selinux_context $sudo_file") ||
+                        system ("/usr/bin/chcon -t $selinux_context $sudo_file") == 0 or
                             do_log ("WARN: failed to set SELinux context $selinux_context on $sudo_file [$hostname]");
                     }
                     set_file ($sudo_file, 0440, 0, 0);
@@ -619,7 +619,7 @@ unless ($preview) {
         };
         $os eq "Linux" && do { 
         if ($has_selinux) {
-            system ("/usr/bin/chcon -t $selinux_context $self_file") ||
+            system ("/usr/bin/chcon -t $selinux_context $self_file") == 0 or
                 do_log ("WARN: failed to set SELinux context $selinux_context on $self_file [$hostname]");
             }
             set_file ($self_file, 0440, 0, 0);
@@ -745,3 +745,4 @@ S<       >Show version of the script.
 @(#) 2015-08-26: VRF 1.1.1: small and not so small fixes [Patrick Van der Veken]
 @(#) 2015-08-27: VRF 1.1.2: small fix [Patrick Van der Veken]
 @(#) 2015-09-09: VRF 1.1.3: small selinux fix [Patrick Van der Veken]
+@(#) 2015-09-09: VRF 1.1.4: wrong handling of RC=0 in system() [Patrick Van der Veken]
