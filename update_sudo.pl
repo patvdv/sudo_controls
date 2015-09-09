@@ -44,7 +44,7 @@ use File::Temp qw(tempfile);
 
 # ------------------------- CONFIGURATION starts here -------------------------
 # define the V.R.F (version/release/fix)
-my $MY_VRF = "1.1.2";
+my $MY_VRF = "1.1.3";
 # name of global configuration file (no path, must be located in the script directory)
 my $global_config_file = "update_sudo.conf";
 # name of localized configuration file (no path, must be located in the script directory)
@@ -744,3 +744,4 @@ S<       >Show version of the script.
 @(#) 2015-08-18: VRF 1.1.0: replace uname/hostname syscalls, now support for FQDN via $use_fqdn, other fixes [Patrick Van der Veken]
 @(#) 2015-08-26: VRF 1.1.1: small and not so small fixes [Patrick Van der Veken]
 @(#) 2015-08-27: VRF 1.1.2: small fix [Patrick Van der Veken]
+@(#) 2015-09-09: VRF 1.1.3: small selinux fix [Patrick Van der Veken]
