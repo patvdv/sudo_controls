@@ -47,7 +47,8 @@
 # @(#) 2015-09-06: proper error checking in fix2host(), update2host() by using
 # @(#)             logc() (VRF 1.3.0) [Patrick Van der Veken]
 # @(#) 2015-09-09: better handling of leading log sigils in die(), log(), logc()
-# @(#)             and warn(), fix in count_fields() (VRF 1.3.1) [Patrick Van der Veken]
+# @(#)             and warn(), fix in count_fields(), failure in local update
+# @(#)             should be die() (VRF 1.3.1) [Patrick Van der Veken]
 # -----------------------------------------------------------------------------
 # DO NOT CHANGE THIS FILE UNLESS YOU KNOW WHAT YOU ARE DOING!
 #******************************************************************************
@@ -1242,7 +1243,7 @@ case ${ARG_ACTION} in
         RC="$(< ${TMP_RC_FILE})"
         if (( RC ))
         then
-            log "failed to apply SUDO controls locally [RC=${RC}]"
+            die "failed to apply SUDO controls locally [RC=${RC}]"
         else
             log "finished applying SUDO controls locally [RC=${RC}]"
         fi
