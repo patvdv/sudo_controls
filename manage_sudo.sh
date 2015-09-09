@@ -21,9 +21,9 @@
 #       or remote, validate SUDO syntax, distribute the SUDO fragment files
 # EXPECTS: (see --help for more options)
 # REQUIRES: check_config(), check_logging(), check_params(), check_root_user(),
-#           check_setup(), check_syntax(), count_fields(), die(), display_usage(), 
-#           distribute2host(), do_cleanup(), fix2host(), log(), logc(), 
-#           resolve_host(), sftp_file(), update2host(), validate_syntax(), 
+#           check_setup(), check_syntax(), count_fields(), die(), display_usage(),
+#           distribute2host(), do_cleanup(), fix2host(), log(), logc(),
+#           resolve_host(), sftp_file(), update2host(), validate_syntax(),
 #           wait_for_children(), warn()
 #           For other pre-requisites see the documentation in display_usage()
 #
@@ -33,10 +33,10 @@
 # @(#) 2015-01-05: added backup feature, see --backup (VRF 1.1.0) [Patrick Van der Veken]
 # @(#) 2015-01-19: updated display_usage() (VRF 1.1.1) [Patrick Van der Veken]
 # @(#) 2015-02-02: allow fragments files to have extensions in merge_fragments()
-#                  use 'sudo -n' (VRF 1.1.2) [Patrick Van der Veken]
+# @(#)             use 'sudo -n' (VRF 1.1.2) [Patrick Van der Veken]
 # @(#) 2015-04-10: fix in --fix-local routine (VRF 1.1.3) [Patrick Van der Veken]
 # @(#) 2015-08-18: moved essential configuration items of the script into a
-# @(#)             separate configuration file (global/local), fix in 
+# @(#)             separate configuration file (global/local), fix in
 # @(#)             wait_for_children (VRF 1.2.0) [Patrick Van der Veken]
 # @(#) 2015-08-26: added DO_SFTP_CHMOD configuration parameter to avoid
 # @(#)             setstat failures with sftp_file() when remote file
@@ -45,7 +45,9 @@
 # @(#) 2015-08-28: check_config() update (VRF 1.2.3) [Patrick Van der Veken]
 # @(#) 2015-09-04: fix in wait_for_children (VRF 1.2.4) [Patrick Van der Veken]
 # @(#) 2015-09-06: proper error checking in fix2host(), update2host() by using
-# @(#)             logc() (VRF 1.3.0) [Patrick Van der Veken
+# @(#)             logc() (VRF 1.3.0) [Patrick Van der Veken]
+# @(#) 2015-09-09: better handling of leading log sigils in die(), log(), logc()
+# @(#)             and warn(), fix in count_fields() (VRF 1.3.1) [Patrick Van der Veken]
 # -----------------------------------------------------------------------------
 # DO NOT CHANGE THIS FILE UNLESS YOU KNOW WHAT YOU ARE DOING!
 #******************************************************************************
@@ -59,7 +61,7 @@
 # or LOCAL_CONFIG_FILE instead
 
 # define the V.R.F (version/release/fix)
-MY_VRF="1.3.0"
+MY_VRF="1.3.1"
 # name of the global configuration file (script)
 GLOBAL_CONFIG_FILE="manage_sudo.conf"
 # name of the local configuration file (script)
@@ -168,15 +170,15 @@ then
     then
         if [[ ! -w "${LOG_DIR}" ]]
         then
-            # switch off logging intelligently when needed for permission problems 
+            # switch off logging intelligently when needed for permission problems
             # since this script may run with root/non-root actions
             print -u2 "ERROR: unable to write to the log directory at ${LOG_DIR}, disabling logging"
-            ARG_LOG=0  
+            ARG_LOG=0
         fi
     else
         if [[ ! -w "${LOG_FILE}" ]]
-        then    
-            # switch off logging intelligently when needed for permission problems 
+        then
+            # switch off logging intelligently when needed for permission problems
             # since this script may run with root/non-root actions
             print -u2 "ERROR: unable to write to the log file at ${LOG_FILE}, disabling logging"
             ARG_LOG=0
@@ -205,7 +207,7 @@ then
         exit 1
     else
         FIX_DIR="${ARG_FIX_DIR}"
-    fi    
+    fi
 fi
 # --local-dir
 if [[ -n "${ARG_LOCAL_DIR}" ]]
@@ -216,7 +218,7 @@ then
         exit 1
     else
         LOCAL_DIR="${ARG_LOCAL_DIR}"
-    fi    
+    fi
 fi
 # --log-dir
 [[ -z "${ARG_LOG_DIR}" ]] || LOG_DIR="${ARG_LOG_DIR}"
@@ -276,7 +278,7 @@ do
     if [[ ! -r "${FILE}" ]]
     then
         print -u2 "ERROR: cannot read file ${FILE}"
-        exit 1    
+        exit 1
     fi
 done
 # check for basic SUDO control file(s): targets, /var/tmp/targets.$USER (or $TMP_FILE)
@@ -288,12 +290,12 @@ then
         if [ \( ! -r "${TARGETS_FILE}" \) -a \( ! -r "/var/tmp/targets.${USER}" \) ]
         then
             print -u2 "ERROR: cannot read file ${TARGETS_FILE} nor /var/tmp/targets.${USER}"
-            exit 1    
+            exit 1
         fi
         # override default targets file
         [[ -r "/var/tmp/targets.${USER}" ]] && TARGETS_FILE="/var/tmp/targets.${USER}"
     else
-        TARGETS_FILE=${TMP_FILE}    
+        TARGETS_FILE=${TMP_FILE}
     fi
 fi
 # check for basic SUDO control file(s): fragments, fragments.d/*
@@ -307,19 +309,19 @@ then
     if [[ ! -r "${FRAGS_DIR}" ]]
     then
         print -u2 "ERROR: unable to read directory ${FRAGS_DIR}"
-        exit 1    
-    fi  
+        exit 1
+    fi
 elif [[ -f "${LOCAL_DIR}/fragments" ]]
 then
     FRAGS_FILE="${LOCAL_DIR}/fragments"
     if [[ ! -r "${FRAGS_FILE}" ]]
     then
         print -u2 "ERROR: cannot read file ${FRAGS_FILE}"
-        exit 1    
+        exit 1
     fi
 else
     print -u2 "ERROR: could not found any SUDO fragment files in ${LOCAL_DIR}!"
-    exit 1  
+    exit 1
 fi
 # check for SUDO control scripts & configurations (not .local)
 if (( ARG_ACTION == 1 || ARG_ACTION == 2 || ARG_ACTION == 4 ))
@@ -332,9 +334,9 @@ then
         if [[ ! -r "${FILE}" ]]
         then
             print -u2 "ERROR: cannot read file ${FILE}"
-            exit 1    
+            exit 1
         fi
-    done    
+    done
 fi
 # check if 'visudo' exists
 if [[ ! -x "${VISUDO_BIN}" ]]
@@ -374,9 +376,9 @@ CHECK_DELIM="$2"
 
 NUM_FIELDS=$(print "${CHECK_LINE}" | awk -F "${CHECK_DELIM}" '{ print NF }')
 
-print $NUM_FIELDS
+print ${NUM_FIELDS}
 
-return ${NUM_FIELDS}
+return 0
 }
 
 # -----------------------------------------------------------------------------
@@ -390,16 +392,38 @@ then
     then
         print - "$*" | while read LOG_LINE
         do
-            # filter leading 'ERROR:'
-            LOG_LINE="${LOG_LINE#ERROR: *}"
-            print "${NOW}: ERROR: [$$]:" "${LOG_LINE}" >>${LOG_FILE}
+            # check for leading log sigils and retain them
+            case "${LOG_LINE}" in
+                INFO:*)
+                    LOG_LINE="${LOG_LINE#INFO: *}"
+                    LOG_SIGIL="INFO"
+                    ;;
+                WARN:*)
+                    LOG_LINE="${LOG_LINE#WARN: *}"
+                    LOG_SIGIL="WARN"
+                    ;;
+                ERROR:*)
+                    LOG_LINE="${LOG_LINE#ERROR: *}"
+                    LOG_SIGIL="ERROR"
+                    ;;
+                *)
+                    LOG_SIGIL="ERROR"
+                    ;;
+            esac
+            print "${NOW}: ${LOG_SIGIL}: [$$]:" "${LOG_LINE}" >>${LOG_FILE}
         done
     fi
     print - "$*" | while read LOG_LINE
     do
-        # filter leading 'ERROR:'
-        LOG_LINE="${LOG_LINE#ERROR: *}"
-        print -u2 "ERROR:" "${LOG_LINE}"
+        # check for leading log sigils and retain them
+        case "${LOG_LINE}" in
+            INFO:*|WARN:*|ERROR*)
+                print "${LOG_LINE}"
+                ;;
+            *)
+                print "ERROR:" "${LOG_LINE}"
+                ;;
+        esac
     done
 fi
 
@@ -420,7 +444,7 @@ cat << EOT
 Performs basic functions for SUDO controls: update SUDOers files locally or
 remote, validate SUDO syntax or copy/distribute the SUDO controls files
 
-Syntax: ${SCRIPT_DIR}/${SCRIPT_NAME} [--help] | (--backup | --check-syntax | --check-sudo | --preview-global | --update) | 
+Syntax: ${SCRIPT_DIR}/${SCRIPT_NAME} [--help] | (--backup | --check-syntax | --check-sudo | --preview-global | --update) |
             (--apply [--remote-dir=<remote_directory>] [--targets=<host1>,<host2>,...]) |
                 ((--copy|--distribute) [--remote-dir=<remote_directory> [--targets=<host1>,<host2>,...]]) |
                     ([--fix-local --fix-dir=<repository_dir> [--create-dir]] | [--fix-remote [--create-dir] [--targets=<host1>,<host2>,...]])
@@ -432,7 +456,7 @@ Parameters:
 --apply|-a          : apply SUDO controls remotely (~targets)
 --backup|-b         : create a backup of the SUDO controls repository (SUDO master)
 --check-syntax|-s   : do basic syntax checking on SUDO controls configuration
-                      (grants & alias files) 
+                      (grants & alias files)
 --check-sudo        : validate the SUDO fragments in the holding directory
 --copy|-c           : copy SUDO control files to remote host (~targets)
 --create-dir        : also create missing directories when fixing the SUDO controls
@@ -449,10 +473,10 @@ Parameters:
 --log-dir           : specify a log directory location.
 --no-log            : do not log any messages to the script log file.
 --preview-global|-p : dump the global grant namespace (after alias resolution)
---remote-dir        : directory where SUDO control files are/should be 
+--remote-dir        : directory where SUDO control files are/should be
                       located/copied on/to the target host
                       [default: ${REMOTE_DIR}]
---targets           : comma-separated list of target hosts to operate on. Override the 
+--targets           : comma-separated list of target hosts to operate on. Override the
                       hosts contained in the 'targets' configuration file.
 --update|-u         : apply SUDO controls locally
 --version|-V        : show the script version/release/fix
@@ -471,7 +495,7 @@ return 0
 }
 
 # -----------------------------------------------------------------------------
-# distribute SUDO controls to a single host/client 
+# distribute SUDO controls to a single host/client
 function distribute2host
 {
 SERVER="$1"
@@ -493,7 +517,7 @@ for FILE in "${LOCAL_DIR}/grants!660" \
             "${LOCAL_DIR}/update_sudo.conf!660" \
             "${SCRIPT_DIR}/${SCRIPT_NAME}!770" \
             "${SCRIPT_DIR}/${GLOBAL_CONFIG_FILE}!660"
-do              
+do
     # sftp transfer
     sftp_file ${FILE} ${SERVER}
     COPY_RC=$?
@@ -561,7 +585,7 @@ if (( CAN_REMOVE_TEMP ))
 then
     [[ -f ${TMP_SCAN_FILE} ]] && rm -f ${TMP_SCAN_FILE} >/dev/null 2>&1
 fi
-    
+
 log "*** finish of ${SCRIPT_NAME} [${CMD_LINE}] ***"
 
 return 0
@@ -583,7 +607,7 @@ then
     warn "could not lookup host ${SERVER}, skipping"
     return 1
 fi
-        
+
 log "fixing sudo controls on ${SERVER} ..."
 if [[ -z "${SUDO_UPDATE_USER}" ]]
 then
@@ -623,18 +647,40 @@ then
     then
         print - "$*" | while read LOG_LINE
         do
-            # filter leading 'INFO:'
-            LOG_LINE="${LOG_LINE#INFO: *}"
-            print "${NOW}: INFO: [$$]:" "${LOG_LINE}" >>${LOG_FILE}
+            # check for leading log sigils and retain them
+            case "${LOG_LINE}" in
+                INFO:*)
+                    LOG_LINE="${LOG_LINE#INFO: *}"
+                    LOG_SIGIL="INFO"
+                    ;;
+                WARN:*)
+                    LOG_LINE="${LOG_LINE#WARN: *}"
+                    LOG_SIGIL="WARN"
+                    ;;
+                ERROR:*)
+                    LOG_LINE="${LOG_LINE#ERROR: *}"
+                    LOG_SIGIL="ERROR"
+                    ;;
+                *)
+                    LOG_SIGIL="INFO"
+                    ;;
+            esac
+            print "${NOW}: ${LOG_SIGIL}: [$$]:" "${LOG_LINE}" >>${LOG_FILE}
         done
     fi
     if (( ARG_VERBOSE ))
     then
         print - "$*" | while read LOG_LINE
         do
-            # filter leading 'INFO:'
-            LOG_LINE="${LOG_LINE#INFO: *}"
-            print "INFO:" "${LOG_LINE}"
+            # check for leading log sigils and retain them
+            case "${LOG_LINE}" in
+                INFO:*|WARN:*|ERROR*)
+                    print "${LOG_LINE}"
+                    ;;
+                *)
+                    print "INFO:" "${LOG_LINE}"
+                    ;;
+            esac
         done
     fi
 fi
@@ -657,18 +703,40 @@ then
     then
         print - "${LOG_STDIN}" | while read LOG_LINE
         do
-            # filter leading 'INFO:'
-            LOG_LINE="${LOG_LINE#INFO: *}"
-            print "${NOW}: INFO: [$$]:" "${LOG_LINE}" >> ${LOG_FILE}
+            # check for leading log sigils and retain them
+            case "${LOG_LINE}" in
+                INFO:*)
+                    LOG_LINE="${LOG_LINE#INFO: *}"
+                    LOG_SIGIL="INFO"
+                    ;;
+                WARN:*)
+                    LOG_LINE="${LOG_LINE#WARN: *}"
+                    LOG_SIGIL="WARN"
+                    ;;
+                ERROR:*)
+                    LOG_LINE="${LOG_LINE#ERROR: *}"
+                    LOG_SIGIL="ERROR"
+                    ;;
+                *)
+                    LOG_SIGIL="INFO"
+                    ;;
+            esac
+            print "${NOW}: ${LOG_SIGIL}: [$$]:" "${LOG_LINE}" >>${LOG_FILE}
         done
     fi
     if (( ARG_VERBOSE ))
     then
         print - "${LOG_STDIN}" | while read LOG_LINE
         do
-            # filter leading 'INFO:'
-            LOG_LINE="${LOG_LINE#INFO: *}"
-            print "INFO:" "${LOG_LINE}"
+            # check for leading log sigils and retain them
+            case "${LOG_LINE}" in
+                INFO:*|WARN:*|ERROR*)
+                    print "${LOG_LINE}"
+                    ;;
+                *)
+                    print "INFO:" "${LOG_LINE}"
+                    ;;
+            esac
         done
     fi
 fi
@@ -680,18 +748,39 @@ then
     then
         print - "$*" | while read LOG_LINE
         do
-            # filter leading 'INFO:'
-            LOG_LINE="${LOG_LINE#INFO: *}"
-            print "${NOW}: INFO: [$$]:" "${LOG_LINE}" >> ${LOG_FILE}
+            # check for leading log sigils and retain them
+            case "${LOG_LINE}" in
+                INFO:*)
+                    LOG_LINE="${LOG_LINE#INFO: *}"
+                    LOG_SIGIL="INFO"
+                    ;;
+                WARN:*)
+                    LOG_LINE="${LOG_LINE#WARN: *}"
+                    LOG_SIGIL="WARN"
+                    ;;
+                ERROR:*)
+                    LOG_LINE="${LOG_LINE#ERROR: *}"
+                    LOG_SIGIL="ERROR"
+                    ;;
+                *)
+                    LOG_SIGIL="INFO"
+                    ;;
+            esac
+            print "${NOW}: ${LOG_SIGIL}: [$$]:" "${LOG_LINE}" >>${LOG_FILE}
         done
     fi
     if (( ARG_VERBOSE != 0 ))
     then
         print - "$*" | while read LOG_LINE
         do
-            # filter leading 'INFO:'
-            LOG_LINE="${LOG_LINE#INFO: *}"
-            print "INFO:" "${LOG_LINE}"
+            case "${LOG_LINE}" in
+                INFO:*|WARN:*|ERROR*)
+                    print "${LOG_LINE}"
+                    ;;
+                *)
+                    print "INFO:" "${LOG_LINE}"
+                    ;;
+            esac
         done
     fi
 fi
@@ -739,7 +828,7 @@ return $?
 
 # -----------------------------------------------------------------------------
 # transfer a file using sftp
-function sftp_file 
+function sftp_file
 {
 TRANSFER_FILE="$1"
 TRANSFER_HOST="$2"
@@ -775,7 +864,7 @@ return ${SFTP_RC}
 }
 
 # -----------------------------------------------------------------------------
-# update SUDO controls on a single host/client 
+# update SUDO controls on a single host/client
 # !! requires appropriate 'sudo' rules on remote client for privilege elevation
 function update2host
 {
@@ -867,18 +956,40 @@ then
     then
         print - "$*" | while read LOG_LINE
         do
-            # filter leading 'WARN:'
-            LOG_LINE="${LOG_LINE#WARN: *}"
-            print "${NOW}: WARN: [$$]:" "${LOG_LINE}" >>${LOG_FILE}
+            # check for leading log sigils and retain them
+            case "${LOG_LINE}" in
+                INFO:*)
+                    LOG_LINE="${LOG_LINE#INFO: *}"
+                    LOG_SIGIL="INFO"
+                    ;;
+                WARN:*)
+                    LOG_LINE="${LOG_LINE#WARN: *}"
+                    LOG_SIGIL="WARN"
+                    ;;
+                ERROR:*)
+                    LOG_LINE="${LOG_LINE#ERROR: *}"
+                    LOG_SIGIL="ERROR"
+                    ;;
+                *)
+                    LOG_SIGIL="WARN"
+                    ;;
+            esac
+            print "${NOW}: ${LOG_SIGIL}: [$$]:" "${LOG_LINE}" >>${LOG_FILE}
         done
     fi
     if (( ARG_VERBOSE ))
     then
         print - "$*" | while read LOG_LINE
         do
-            # filter leading 'WARN:'
-            LOG_LINE="${LOG_LINE#WARN: *}"
-            print "WARN:" "${LOG_LINE}"
+            # check for leading log sigils and retain them
+            case "${LOG_LINE}" in
+                INFO:*|WARN:*|ERROR*)
+                    print "${LOG_LINE}"
+                    ;;
+                *)
+                    print "WARN:" "${LOG_LINE}"
+                    ;;
+            esac
         done
     fi
 fi
@@ -976,14 +1087,14 @@ do
             display_usage
             exit 0
             ;;
-    esac    
+    esac
 done
 
 # check for configuration files (local overrides local)
 if [[ -r "${SCRIPT_DIR}/${GLOBAL_CONFIG_FILE}" || -r "${SCRIPT_DIR}/${LOCAL_CONFIG_FILE}" ]]
 then
     if [[ -r "${SCRIPT_DIR}/${GLOBAL_CONFIG_FILE}" ]]
-    then    
+    then
         . "${SCRIPT_DIR}/${GLOBAL_CONFIG_FILE}"
     fi
     if [[ -r "${SCRIPT_DIR}/${LOCAL_CONFIG_FILE}" ]]
@@ -992,7 +1103,7 @@ then
     fi
 else
     print -u2 "ERROR: could not find global or local configuration file"
-fi  
+fi
 
 # startup checks
 check_params && check_config && check_setup && check_logging
@@ -1000,8 +1111,8 @@ check_params && check_config && check_setup && check_logging
 # catch shell signals
 trap 'do_cleanup; exit' 1 2 3 15
 
-log "*** start of ${SCRIPT_NAME} [${CMD_LINE}] ***"    
-(( ARG_LOG )) && log "logging takes places in ${LOG_FILE}"  
+log "*** start of ${SCRIPT_NAME} [${CMD_LINE}] ***"
+(( ARG_LOG )) && log "logging takes places in ${LOG_FILE}"
 
 log "runtime info: LOCAL_DIR is set to: ${LOCAL_DIR}"
 
@@ -1042,7 +1153,7 @@ case ${ARG_ACTION} in
         done
         # final wait for background processes to be finished completely
         wait_for_children ${PIDS} || \
-            warn "$? background jobs (possibly) failed to complete correctly"      
+            warn "$? background jobs (possibly) failed to complete correctly"
 
         log "finished applying SUDO controls remotely"
         ;;
@@ -1104,20 +1215,20 @@ case ${ARG_ACTION} in
         if [[ -n "${FRAGS_DIR}" ]]
         then
             cat ${TMP_MERGE_FILE} | grep -v '^%%%' >${TMP_SCAN_FILE}
-            [[ -d ${TMP_WORK_DIR} ]] && rm -rf ${TMP_WORK_DIR} 2>/dev/null        
+            [[ -d ${TMP_WORK_DIR} ]] && rm -rf ${TMP_WORK_DIR} 2>/dev/null
         else
-            cat ${FRAGS_FILE} | grep -v '^%%%' >${TMP_SCAN_FILE}        
+            cat ${FRAGS_FILE} | grep -v '^%%%' >${TMP_SCAN_FILE}
         fi
         # run syntax check
         if (( CAN_CHECK_SYNTAX ))
         then
             CHECK_RESULT="$(${VISUDO_BIN} -c -f ${TMP_SCAN_FILE} 2>/dev/null)"
-            if (( $? )) 
+            if (( $? ))
             then
                 warn "SUDO syntax check: FAILED: ${CHECK_RESULT})"
                 CAN_REMOVE_TEMP=0
             else
-                log "SUDO syntax check: PASSED"         
+                log "SUDO syntax check: PASSED"
             fi
         fi
         log "finished validating SUDO fragments"
@@ -1133,7 +1244,7 @@ case ${ARG_ACTION} in
         then
             log "failed to apply SUDO controls locally [RC=${RC}]"
         else
-            log "finished applying SUDO controls locally [RC=${RC}]"     
+            log "finished applying SUDO controls locally [RC=${RC}]"
         fi
         ;;
     5)  # fix directory structure/perms/ownerships
@@ -1143,12 +1254,12 @@ case ${ARG_ACTION} in
         then
             log "you requested to create directories (if needed)"
         else
-            log "you requested NOT to create directories (if needed)"       
+            log "you requested NOT to create directories (if needed)"
         fi
-        
+
         # check if the SUDO control repo is already there
         if [[ ${FIX_CREATE} = 1 && ! -d "${FIX_DIR}" ]]
-        then    
+        then
             # create stub directories
             mkdir -p "${FIX_DIR}/holding" 2>/dev/null || \
                 warn "failed to create directory ${FIX_DIR}/holding"
@@ -1165,7 +1276,7 @@ case ${ARG_ACTION} in
             then
                 chmod 2775 "${FIX_DIR}/holding" 2>/dev/null && \
                     chown root:${SUDO_OWNER_GROUP} "${FIX_DIR}/holding" 2>/dev/null
-            fi                  
+            fi
             if [[ -d "${FIX_DIR}/sudoers.d" ]]
             then
                 chmod 755 "${FIX_DIR}/sudoers.d" 2>/dev/null && \
@@ -1218,8 +1329,8 @@ case ${ARG_ACTION} in
     6)  # fix remote directory structure/perms/ownerships
         log "ACTION: fix remote SUDO controls repository"
         check_root_user && die "must NOT be run as user 'root'"
-        # derive SUDO controls repo from $REMOTE_DIR: 
-        # /etc/sudo_controls/holding -> /etc/sudo_controls 
+        # derive SUDO controls repo from $REMOTE_DIR:
+        # /etc/sudo_controls/holding -> /etc/sudo_controls
         FIX_DIR="$(print ${REMOTE_DIR%/*})"
         [[ -z "${FIX_DIR}" ]] && \
             die "could not determine SUDO controls repo path from \$REMOTE_DIR?"
@@ -1284,7 +1395,7 @@ case ${ARG_ACTION} in
             then
                 log "$(tar -cvf ${BACKUP_TAR_FILE} ${FRAGS_DIR} 2>/dev/null)"
             else
-                log "$(tar -cvf ${BACKUP_TAR_FILE} ${FRAGS_FILE} 2>/dev/null)"   
+                log "$(tar -cvf ${BACKUP_TAR_FILE} ${FRAGS_FILE} 2>/dev/null)"
             fi
             # configuration files
             for FILE in "${LOCAL_DIR}/grants" "${LOCAL_DIR}/alias ${LOCAL_DIR}/targets"
