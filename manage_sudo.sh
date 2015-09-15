@@ -49,6 +49,7 @@
 # @(#) 2015-09-09: better handling of leading log sigils in die(), log(), logc()
 # @(#)             and warn(), fix in count_fields(), failure in local update
 # @(#)             should be die() (VRF 1.3.1) [Patrick Van der Veken]
+# @(#) 2015-09-15: small fix in wait_for_children() (VRF 1.3.2) [Patrick Van der Veken]
 # -----------------------------------------------------------------------------
 # DO NOT CHANGE THIS FILE UNLESS YOU KNOW WHAT YOU ARE DOING!
 #******************************************************************************
@@ -62,7 +63,7 @@
 # or LOCAL_CONFIG_FILE instead
 
 # define the V.R.F (version/release/fix)
-MY_VRF="1.3.1"
+MY_VRF="1.3.2"
 # name of the global configuration file (script)
 GLOBAL_CONFIG_FILE="manage_sudo.conf"
 # name of the local configuration file (script)
@@ -931,7 +932,7 @@ do
             RC=$?
             if (( ${RC} ))
             then
-                log "child process ${PID} exited [RC=${RC}]"
+                warn "child process ${PID} exited [RC=${RC}]"
                 WAIT_ERRORS=$(( WAIT_ERRORS + 1 ))
             else
                 log "child process ${PID} exited [RC=${RC}]"
