@@ -50,6 +50,8 @@
 # @(#)             and warn(), fix in count_fields(), failure in local update
 # @(#)             should be die() (VRF 1.3.1) [Patrick Van der Veken]
 # @(#) 2015-09-15: small fix in wait_for_children() (VRF 1.3.2) [Patrick Van der Veken]
+# @(#) 2015-09-23: added $GLOBAL_CONFIG_FILE to fix ownership/permissions routine
+# @(#)             (VRF 1.3.3) [Patrick Van der Veken]
 # -----------------------------------------------------------------------------
 # DO NOT CHANGE THIS FILE UNLESS YOU KNOW WHAT YOU ARE DOING!
 #******************************************************************************
@@ -63,7 +65,7 @@
 # or LOCAL_CONFIG_FILE instead
 
 # define the V.R.F (version/release/fix)
-MY_VRF="1.3.2"
+MY_VRF="1.3.3"
 # name of the global configuration file (script)
 GLOBAL_CONFIG_FILE="manage_sudo.conf"
 # name of the local configuration file (script)
@@ -1285,7 +1287,7 @@ case ${ARG_ACTION} in
                     chown root:sys "${FIX_DIR}/sudoers.d" 2>/dev/null
             fi
             # checking files (sudoers.d/* are fixed by update_sudo.pl)
-            for FILE in grants alias fragments update_sudo.conf
+            for FILE in grants alias fragments ${GLOBAL_CONFIG_FILE} update_sudo.conf
             do
                 if [[ -f "${FIX_DIR}/holding/${FILE}" ]]
                 then
