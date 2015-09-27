@@ -11,6 +11,8 @@ SUDO Controls is a light-weight **SUDO fragments/rules** distribution & manageme
 
 * allows the use of (nested) **groups** in the master configuration: users, fragments and hosts can be grouped in the SUDO master configuration files to allow a simplified configuration. Nesting of groups is allowed up to one level deep.
 
+* can discover host public keys to (re)create `known_hosts` file(s) for a large amount of hosts
+
 * requires **no client agent** component and is **stateless**: SUDO Controls performs operations by pushing fragments or commands to client hosts. Update processes on the client hosts will only be started on-demand. If the SUDO master is - for whatever reason - unavailable then active fragments on a client host remain in place.
 
 * is **easy** to **configure** and **maintain** (command-line based): the configuration is stored in a limited number of flat files and be easily updated. A very rudimentary syntax checking facility is also available to check the consistency of the most important (master) configuration files.
