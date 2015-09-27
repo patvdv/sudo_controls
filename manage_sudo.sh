@@ -52,6 +52,8 @@
 # @(#) 2015-09-15: small fix in wait_for_children() (VRF 1.3.2) [Patrick Van der Veken]
 # @(#) 2015-09-23: added $GLOBAL_CONFIG_FILE to fix ownership/permissions routine
 # @(#)             (VRF 1.3.3) [Patrick Van der Veken]
+# @(#) 2015-09-27: added SSH host keys discovery, re-assigned '-d' command-line
+# @(#)             option to this function (VRF 1.4.0) [Patrick Van der Veken]
 # -----------------------------------------------------------------------------
 # DO NOT CHANGE THIS FILE UNLESS YOU KNOW WHAT YOU ARE DOING!
 #******************************************************************************
@@ -65,7 +67,7 @@
 # or LOCAL_CONFIG_FILE instead
 
 # define the V.R.F (version/release/fix)
-MY_VRF="1.3.3"
+MY_VRF="1.4.0"
 # name of the global configuration file (script)
 GLOBAL_CONFIG_FILE="manage_sudo.conf"
 # name of the local configuration file (script)
@@ -83,6 +85,7 @@ FRAGS_DIR=""
 TARGETS_FILE=""
 FIX_CREATE=0
 CAN_CHECK_SYNTAX=1
+CAN_DISCOVER_KEYS=1
 CAN_REMOVE_TEMP=1
 TMP_FILE="${TMP_DIR}/.${SCRIPT_NAME}.$$"
 TMP_RC_FILE="${TMP_DIR}/.${SCRIPT_NAME}.rc.$$"
@@ -149,6 +152,12 @@ then
     print -u2 "ERROR: no value for the VISUDO_BIN setting in the configuration file"
     exit 1
 fi
+# SSH_KEYSCAN_BIN
+if [[ -z "${SSH_KEYSCAN_BIN}" ]]
+then
+    print -u2 "ERROR: no value for the SSH_KEYSCAN_BIN setting in the configuration file"
+    exit 1
+fi
 # MAX_BACKGROUND_PROCS
 if [[ -z "${MAX_BACKGROUND_PROCS}" ]]
 then
@@ -197,7 +206,7 @@ return 0
 function check_params
 {
 # -- ALL
-if (( ARG_ACTION < 1 || ARG_ACTION > 9 ))
+if (( ARG_ACTION < 1 || ARG_ACTION > 10 ))
 then
     display_usage
     exit 0
@@ -286,7 +295,7 @@ do
     fi
 done
 # check for basic SUDO control file(s): targets, /var/tmp/targets.$USER (or $TMP_FILE)
-if (( ARG_ACTION == 1 || ARG_ACTION == 2 || ARG_ACTION == 6 ))
+if (( ARG_ACTION == 1 || ARG_ACTION == 2 || ARG_ACTION == 6 || ARG_ACTION == 10 ))
 then
     if [[ -z "${ARG_TARGETS}" ]]
     then
@@ -347,6 +356,12 @@ if [[ ! -x "${VISUDO_BIN}" ]]
 then
     print -u2 "WARN: 'visudo' tool not found, syntax checking is not available"
     CAN_CHECK_SYNTAX=0
+fi
+# check if 'ssh-keyscan' exists
+if [[ ! -x "${SSH_KEYSCAN_BIN}" ]]
+then
+    print -u2 "WARN: 'ssh-keyscan' tool not found, host key discovery is not possible"
+    CAN_DISCOVER_KEYS=0
 fi
 
 return 0
@@ -451,9 +466,10 @@ remote, validate SUDO syntax or copy/distribute the SUDO controls files
 Syntax: ${SCRIPT_DIR}/${SCRIPT_NAME} [--help] | (--backup | --check-syntax | --check-sudo | --preview-global | --update) |
             (--apply [--remote-dir=<remote_directory>] [--targets=<host1>,<host2>,...]) |
                 ((--copy|--distribute) [--remote-dir=<remote_directory> [--targets=<host1>,<host2>,...]]) |
-                    ([--fix-local --fix-dir=<repository_dir> [--create-dir]] | [--fix-remote [--create-dir] [--targets=<host1>,<host2>,...]])
-                        [--preview-global] [--local-dir=<local_directory>]
-                            [--no-log] [--log-dir=<log_directory>] [--debug]
+                    (--discover [--targets=<host1>,<host2>,...]) |
+                        ([--fix-local --fix-dir=<repository_dir> [--create-dir]] | [--fix-remote [--create-dir] [--targets=<host1>,<host2>,...]])
+                            [--preview-global] [--local-dir=<local_directory>]
+                                [--no-log] [--log-dir=<log_directory>] [--debug]
 
 Parameters:
 
@@ -466,7 +482,8 @@ Parameters:
 --create-dir        : also create missing directories when fixing the SUDO controls
                       repository (see also --fix-local/--fix-remote)
 --debug             : print extra status messages on STDERR
---distribute|-d     : same as --copy
+--discover|-d       : discover SSH host keys (STDOUT)
+--distribute        : same as --copy
 --fix-dir           : location of the local SUDO controls client repository
 --fix-local         : fix permissions on the local SUDO controls repository
                       (local SUDO controls repository given by --fix-dir)
@@ -1012,39 +1029,89 @@ for PARAMETER in ${CMD_LINE}
 do
     case ${PARAMETER} in
         -a|-apply|--apply)
+            (( ARG_ACTION )) && {
+                print -u2 "ERROR: multiple actions specified"
+                exit 1
+            }
             ARG_ACTION=1
             ;;
         -b|-backup|--backup)
+            (( ARG_ACTION )) && {
+                print -u2 "ERROR: multiple actions specified"
+                exit 1
+            }
             ARG_ACTION=9
             ;;
         -c|-copy|--copy)
+            (( ARG_ACTION )) && {
+                print -u2 "ERROR: multiple actions specified"
+                exit 1
+            }
             ARG_ACTION=2
             ;;
         -debug|--debug)
             ARG_DEBUG=1
             ;;
-        -d|-distribute|--distribute)
+        -distribute|--distribute)
+            (( ARG_ACTION )) && {
+                print -u2 "ERROR: multiple actions specified"
+                exit 1
+            }
             ARG_ACTION=2
             ;;
+        -d|-discover|--discover)
+            (( ARG_ACTION )) && {
+                print -u2 "ERROR: multiple actions specified"
+                exit 1
+            }
+            ARG_ACTION=10
+            ARG_LOG=0
+            ARG_VERBOSE=0
+            CAN_DISCOVER_KEYS=1
+            ;;
         -p|--preview-global|-preview-global)
+            (( ARG_ACTION )) && {
+                print -u2 "ERROR: multiple actions specified"
+                exit 1
+            }
             ARG_ACTION=7
             ;;
         -fix-local|--fix-local)
+            (( ARG_ACTION )) && {
+                print -u2 "ERROR: multiple actions specified"
+                exit 1
+            }
             ARG_ACTION=5
             ;;
         -fix-remote|--fix-remote)
+            (( ARG_ACTION )) && {
+                print -u2 "ERROR: multiple actions specified"
+                exit 1
+            }
             ARG_ACTION=6
             ;;
         -s|-check-syntax|--check-syntax)
+            (( ARG_ACTION )) && {
+                print -u2 "ERROR: multiple actions specified"
+                exit 1
+            }
             ARG_ACTION=8
             ;;
         -check-sudo|--check-sudo)
+            (( ARG_ACTION )) && {
+                print -u2 "ERROR: multiple actions specified"
+                exit 1
+            }
             ARG_ACTION=3
             ARG_LOG=0
             CAN_CHECK_SYNTAX=1
             CAN_REMOVE_TEMP=1
             ;;
         -u|-update|--update)
+            (( ARG_ACTION )) && {
+                print -u2 "ERROR: multiple actions specified"
+                exit 1
+            }
             ARG_ACTION=4
             ;;
         -create-dir|--create-dir)
@@ -1412,6 +1479,15 @@ case ${ARG_ACTION} in
             die "could not find backup directory ${BACKUP_DIR}. Host is not an SUDO master?"
         fi
         log "finished backing up the current configuration & fragment files"
+        ;;
+    10) # gather SSH host keys
+        log "ACTION: gathering SSH host keys ..."
+        if (( CAN_DISCOVER_KEYS ))
+        then
+            cat "${TARGETS_FILE}" | grep -v -E -e '^#' -e '^$' |\
+                ${SSH_KEYSCAN_BIN} ${SSH_KEYSCAN_ARGS} -f -
+        fi
+        log "finished gathering SSH host keys"
         ;;
 esac
 
