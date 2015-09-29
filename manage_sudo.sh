@@ -52,6 +52,7 @@
 # @(#) 2015-09-15: small fix in wait_for_children() (VRF 1.3.2) [Patrick Van der Veken]
 # @(#) 2015-09-23: added $GLOBAL_CONFIG_FILE to fix ownership/permissions routine
 # @(#)             (VRF 1.3.3) [Patrick Van der Veken]
+# @(#) 2015-09-29: fix for sudoers.d ownership on HP-UX (VRF 1.3.4) [Patrick Van der Veken]
 # -----------------------------------------------------------------------------
 # DO NOT CHANGE THIS FILE UNLESS YOU KNOW WHAT YOU ARE DOING!
 #******************************************************************************
@@ -65,7 +66,7 @@
 # or LOCAL_CONFIG_FILE instead
 
 # define the V.R.F (version/release/fix)
-MY_VRF="1.3.3"
+MY_VRF="1.3.4"
 # name of the global configuration file (script)
 GLOBAL_CONFIG_FILE="manage_sudo.conf"
 # name of the local configuration file (script)
@@ -1283,8 +1284,17 @@ case ${ARG_ACTION} in
             fi
             if [[ -d "${FIX_DIR}/sudoers.d" ]]
             then
-                chmod 755 "${FIX_DIR}/sudoers.d" 2>/dev/null && \
-                    chown root:sys "${FIX_DIR}/sudoers.d" 2>/dev/null
+                case ${OS_NAME} in
+                    *HP-UX*)
+                        # sudo >v1.8
+                        chmod 755 "${FIX_DIR}/sudoers.d" 2>/dev/null && \
+                            chown bin:bin "${FIX_DIR}/sudoers.d" 2>/dev/null
+                        ;;
+                    *)
+                        chmod 755 "${FIX_DIR}/sudoers.d" 2>/dev/null && \
+                            chown root:sys "${FIX_DIR}/sudoers.d" 2>/dev/null
+                        ;;
+                esac
             fi
             # checking files (sudoers.d/* are fixed by update_sudo.pl)
             for FILE in grants alias fragments ${GLOBAL_CONFIG_FILE} update_sudo.conf
