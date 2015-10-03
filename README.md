@@ -1,7 +1,7 @@
 # SUDO Controls
 SUDO Controls is a light-weight **SUDO fragments/rules** distribution & management framework which:
 
-* uses a **desired state** model: SUDO Controls pushes fragments from a master server onto client host and applies them according to the central configuration.
+* uses a **desired state** model: SUDO Controls pushes fragments from a master (or slave) server onto client host(s) and applies them according to the central configuration.
 
 * uses **SSH** as **transport** mechanism: SUDO Controls connects to client hosts through the secure path of SSH.
 
