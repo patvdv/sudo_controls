@@ -5,6 +5,8 @@ SUDO Controls is a light-weight **SUDO fragments/rules** distribution & manageme
 
 * uses **SSH** as **transport** mechanism: SUDO Controls connects to client hosts through the secure path of SSH.
 
+* supports a **Master→Slave→Client** model so that information can be propagated within more complex LAN set-ups.
+
 * performs operations with **least privileges**: copy/distribute operations are performed with a low-privileged account. Only the actual snippet updates requires super-user privileges.
 
 * uses a **two-stage** approach to activate **SUDO fragments**: copy (or distribute) and apply. Fragments are first copied into a temporary location on each client hosts - the holding directory - and not applied automatically. Applying or activating fragments on a client host is a separate operation which can be triggered either locally or remotely (from the SUDO master)
