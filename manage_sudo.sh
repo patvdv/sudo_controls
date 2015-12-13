@@ -61,6 +61,8 @@
 # @(#)             sudoers.d ownerships on HP-UX (VRF 1.5.0) [Patrick Van der Veken]
 # @(#) 2015-10-09: simplified handling of SSH agent handling, obsoleted
 # @(#)             DO_SLAVE_SSH_AGENT option (VRF 1.5.1) [Patrick Van der Veken]
+# @(#) 2015-12-13: improved check_root_user() calls
+# @(#)             (VRF 1.5.2) [Patrick Van der Veken]
 # -----------------------------------------------------------------------------
 # DO NOT CHANGE THIS FILE UNLESS YOU KNOW WHAT YOU ARE DOING!
 #******************************************************************************
@@ -74,7 +76,7 @@
 # or LOCAL_CONFIG_FILE instead
 
 # define the V.R.F (version/release/fix)
-MY_VRF="1.5.1"
+MY_VRF="1.5.2"
 # name of the global configuration file (script)
 GLOBAL_CONFIG_FILE="manage_sudo.conf"
 # name of the local configuration file (script)
@@ -1435,7 +1437,11 @@ log "runtime info: LOCAL_DIR is set to: ${LOCAL_DIR}"
 case ${ARG_ACTION} in
     1)  # apply SUDO controls remotely
         log "ACTION: apply SUDO controls remotely"
-        check_root_user && die "must NOT be run as user 'root'"
+        # check for root or non-root model
+        if [[ "${SUDO_UPDATE_USER}" != "root" ]]
+        then
+			check_root_user && die "must NOT be run as user 'root'"
+        fi
         # start SSH agent (if needed)
         if (( DO_SSH_AGENT && CAN_START_AGENT ))
         then
@@ -1491,7 +1497,11 @@ case ${ARG_ACTION} in
         ;;
     2)  # copy/distribute SUDO controls
         log "ACTION: copy/distribute SUDO controls"
-        check_root_user && die "must NOT be run as user 'root'"
+        # check for root or non-root model
+        if [[ "${SUDO_UPDATE_USER}" != "root" ]]
+        then
+			check_root_user && die "must NOT be run as user 'root'"
+        fi
         # start SSH agent (if needed)
         if (( DO_SSH_AGENT && CAN_START_AGENT ))
         then
@@ -1607,7 +1617,7 @@ case ${ARG_ACTION} in
         fi
 
         # check if the SUDO control repo is already there
-        if [[ ${FIX_CREATE} = 1 && ! -d "${FIX_DIR}" ]]
+        if [[ ${FIX_CREATE} -eq 1 && ! -d "${FIX_DIR}" ]]
         then
             # create stub directories
             mkdir -p "${FIX_DIR}/holding" 2>/dev/null || \
