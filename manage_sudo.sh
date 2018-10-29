@@ -209,7 +209,7 @@ fi
 # --local-dir
 if [[ -n "${ARG_LOCAL_DIR}" ]]
 then
-    if [[ ! -d "${ARG_LOCAL_DIR}" ]] -o [[ ! -r "${ARG_LOCAL_DIR}" ]]
+    if [[ ! -d "${ARG_LOCAL_DIR}" ]] || [[ ! -r "${ARG_LOCAL_DIR}" ]]
     then
         print -u2 "ERROR: unable to read directory ${ARG_LOCAL_DIR}"
         exit 1
