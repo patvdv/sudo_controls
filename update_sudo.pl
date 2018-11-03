@@ -43,21 +43,23 @@ use File::Temp qw(tempfile);
 #******************************************************************************
 
 # ------------------------- CONFIGURATION starts here -------------------------
-# define the V.R.F (version/release/fix)
-my $MY_VRF = "1.1.4";
+# define the version (YYYY-MM-DD)
+my $script_version = "2018-11-03";
 # name of global configuration file (no path, must be located in the script directory)
 my $global_config_file = "update_sudo.conf";
 # name of localized configuration file (no path, must be located in the script directory)
 my $local_config_file = "update_sudo.conf.local";
+# maxiumum level of recursion for alias resolution
+my $max_recursion = 5;
 # selinux context label of sudoers fragment files
 my $selinux_context = "etc_t";
-# ------------------------- CONFIGURATION ends here --------------------------- 
+# ------------------------- CONFIGURATION ends here ---------------------------
 # initialize variables
 my ($debug, $verbose, $preview, $global, $use_fqdn) = (0,0,0,0,0);
 my (@config_files, $fragments_dir, $visudo_bin, $immutable_self_file, $immutable_self_cmd);
 my (%options, @uname, %aliases, %frags, @grants);
 my ($os, $host, $hostname, $run_dir);
-my ($selinux_status, $has_selinux) = ("",0);
+my ($selinux_status, $has_selinux, $recursion_count) = ("",0,1);
 $|++;
 
 
@@ -67,7 +69,7 @@ $|++;
 
 # -----------------------------------------------------------------------------
 sub do_log {
-    
+
     my $message = shift;
 
     if ($message =~ /^ERROR:/ || $message =~ /^WARN:/) {
@@ -87,7 +89,7 @@ sub parse_config_file {
     my $config_file = shift;
 
     unless (open (CONF_FD, "<", $config_file)) {
-        do_log ("ERROR: failed to open the configuration file ${config_file} [$! $hostname]") 
+        do_log ("ERROR: failed to open the configuration file ${config_file} [$! $hostname]")
         and exit (1);
     }
     while (<CONF_FD>) {
@@ -118,7 +120,7 @@ sub parse_config_file {
             }
         }
     }
-    
+
     # parameter checks
     if (not defined ($immutable_self_file) or $immutable_self_file eq "") {
         do_log ("ERROR: 'immutable_self_file' parameter not defined [$hostname]")
@@ -138,7 +140,7 @@ sub resolve_aliases
     foreach $entry (@tmp_array) {
         if ($entry =~ /^\@/) {
             ($aliases{$entry})
-                ? push (@new_array, @{$aliases{$entry}}) 
+                ? push (@new_array, @{$aliases{$entry}})
                 : do_log ("WARN: unable to resolve alias $entry [$hostname]");
         } else {
             ($entry)
@@ -153,14 +155,14 @@ sub resolve_aliases
 sub set_file {
 
     my ($file, $perm, $uid, $gid) = @_;
-    
-    chmod ($perm, "$file") 
+
+    chmod ($perm, "$file")
         or do_log ("ERROR: cannot set permissions on $file [$! $hostname]")
         and exit (1);
     chown ($uid, $gid, "$file")
         or do_log ("ERROR: cannot set ownerships on $file [$! $hostname]")
-        and exit (1);   
-        
+        and exit (1);
+
     return (1);
 }
 
@@ -185,12 +187,12 @@ if ( @ARGV > 0 ) {
                 version|V
             )) || pod2usage(-verbose => 0);
 }
-pod2usage(-verbose => 0) unless (%options);         
-            
+pod2usage(-verbose => 0) unless (%options);
+
 # check version parameter
 if ($options{'version'}) {
     $verbose = 1;
-    do_log ("INFO: $0: version $MY_VRF");
+    do_log ("INFO: $0: version $script_version");
     exit (0);
 }
 # check help parameter
@@ -207,7 +209,7 @@ if ($options{'preview'}) {
     $preview = 1;
     $verbose = 1;
     if ($global) {
-        do_log ("INFO: running in GLOBAL PREVIEW mode");    
+        do_log ("INFO: running in GLOBAL PREVIEW mode");
     } else {
         do_log ("INFO: running in PREVIEW mode");
     }
@@ -235,7 +237,7 @@ do_log ("INFO: parsing configuration file(s) ...");
 push (@config_files, "$run_dir/$global_config_file") if (-f "$run_dir/$global_config_file");
 push (@config_files, "$run_dir/$local_config_file") if (-f "$run_dir/$local_config_file");
 unless (@config_files) {
-    do_log ("ERROR: unable to find any configuration file, bailing out [$hostname]") 
+    do_log ("ERROR: unable to find any configuration file, bailing out [$hostname]")
     and exit (1);
 }
 
@@ -250,7 +252,7 @@ unless ($preview and $global) {
     if (-d $fragments_dir) {
         do_log ("INFO: host is under SUDO control via $fragments_dir");
     } else {
-        do_log ("ERROR: host is not under SUDO control [$hostname]") 
+        do_log ("ERROR: host is not under SUDO control [$hostname]")
         and exit (1);
     }
 }
@@ -258,7 +260,7 @@ unless ($preview and $global) {
 # is syntax checking possible? (not for global preview)
 unless ($preview and $global) {
     unless (-x $visudo_bin) {
-        do_log ("ERROR: 'visudo' tool could not be found, will not continue [$hostname]") 
+        do_log ("ERROR: 'visudo' tool could not be found, will not continue [$hostname]")
         and exit (1);
     }
 }
@@ -269,7 +271,7 @@ $os = $uname[0];
 # who am I?
 unless ($preview and $global) {
     if ($< != 0) {
-        do_log ("ERROR: script must be invoked as user 'root' [$hostname]") 
+        do_log ("ERROR: script must be invoked as user 'root' [$hostname]")
         and exit (1);
     }
 }
@@ -294,7 +296,7 @@ open (ALIASES, "<", "${run_dir}/alias")
 while (<ALIASES>) {
 
     my ($key, $value, @values);
-    
+
     chomp ();
     next if (/^$/ || /\#/);
     s/\s+//g;
@@ -307,13 +309,44 @@ close (ALIASES);
 do_log ("DEBUG: dumping unexpanded aliases:");
 print Dumper (\%aliases) if $debug;
 
-# we can nest aliases one level deep, so do a one-level recursive sort of lookup
-# of the remaining '@' aliases. Input should be passed as comma-separated
-# string to resolve_aliases so don't forget to smash everything back together
-# first.
-foreach my $key (keys (%aliases)) {
-
-    $aliases{$key} = [resolve_aliases (join (",", @{$aliases{$key}}))]; 
+# resolve aliases recursively to a maxium of $max_recursion
+while ($recursion_count <= $max_recursion) {
+    # crawl over all items in the hash %aliases
+    foreach my $key (keys (%aliases)) {
+        # crawl over all items in the array @{aliases{$key}}
+        my @new_array; my @filtered_array;  # these are the working stashes
+        do_log ("DEBUG: expanded alias $key before recursion $recursion_count [$hostname]");
+        print Dumper (\@{$aliases{$key}}) if $debug;
+        foreach my $item (@{$aliases{$key}}) {
+            # is it a group?
+            if ($item =~ /^\@/) {
+                # expand the group if it exists
+                if ($aliases{$item}) {
+                    # add current and new items to the working stash
+                    if (@new_array) {
+                        push (@new_array, @{$aliases{$item}});
+                    } else {
+                        @new_array = (@{$aliases{$key}}, @{$aliases{$item}});
+                    }
+                    # remove the original group item from the working stash
+                    @filtered_array = grep { $_ ne $item } @new_array;
+                    @new_array = @filtered_array;
+                } else {
+                    do_log ("WARN: unable to resolve alias $item [$hostname]");
+                }
+            # no group, just add the item as-is to working stash
+            } else {
+                push (@new_array, $item);
+            }
+        }
+        my %seen;
+        @filtered_array = grep { not $seen{$_}++ } @new_array;
+        # re-assign working stash back to our original hash key
+        @{$aliases{$key}} = @filtered_array;
+        do_log ("DEBUG: expanded alias $key after recursion $recursion_count [$hostname]");
+        print Dumper (\@{$aliases{$key}}) if $debug;
+    }
+    $recursion_count++;
 }
 
 do_log ("INFO: ".scalar (keys (%aliases))." aliases found on $hostname");
@@ -321,8 +354,8 @@ do_log ("DEBUG: dumping expanded aliases:");
 print Dumper (\%aliases) if $debug;
 
 # -----------------------------------------------------------------------------
-# read SUDO fragments stored in a single 'fragments' file or in 
-# individual fragment files from a 'fragments.d' directory 
+# read SUDO fragments stored in a single 'fragments' file or in
+# individual fragment files from a 'fragments.d' directory
 # result: %frags
 # -----------------------------------------------------------------------------
 
@@ -337,43 +370,43 @@ if (-d "${run_dir}/fragments.d" && -f "${run_dir}/fragments") {
 if (-d "${run_dir}/fragments.d") {
     do_log ("INFO: local 'fragments' are stored in a DIRECTORY on $hostname");
     opendir (FRAGS_DIR, "${run_dir}/fragments.d")
-        or do_log ("ERROR: cannot open 'fragments.d' directory [$! $hostname]") 
+        or do_log ("ERROR: cannot open 'fragments.d' directory [$! $hostname]")
         and exit (1);
     while (my $frag_file = readdir (FRAGS_DIR)) {
         next if ($frag_file =~ /^\./);
         push (@frag_files, "${run_dir}/fragments.d/$frag_file");
     }
-    closedir (FRAGS_DIR);    
+    closedir (FRAGS_DIR);
 } elsif (-f "${run_dir}/fragments") {
     do_log ("INFO: local 'fragments' are stored in a FILE on $hostname");
     push (@frag_files, "${run_dir}/fragments");
 } else {
-    do_log ("ERROR: cannot find any SUDO fragments in the repository! [$hostname]") 
+    do_log ("ERROR: cannot find any SUDO fragments in the repository! [$hostname]")
     and exit (1);
 }
 
 # process 'fragments' files
 foreach my $frag_file (@frag_files) {
     open (FRAGS, "<", $frag_file)
-        or do_log ("ERROR: cannot read 'fragments' file [$! $hostname]") 
+        or do_log ("ERROR: cannot read 'fragments' file [$! $hostname]")
         and exit (1);
     do_log ("INFO: reading SUDO fragments from file: $frag_file");
-    
+
     my @frag_file = <FRAGS>;
-    
+
     # check for fragments header(s): if there is no fragment header, then we
-    # consider this a single fragment file, otherwise we consider it a 
+    # consider this a single fragment file, otherwise we consider it a
     # collection of fragments that needs to be broken down in individual fragments
-    
+
     if (grep { /^%%%/s } @frag_file) {
-    
+
         do_log ("INFO: fragment file $frag_file contains multiple fragments, parsing ...");
-        
+
         my ($frag_file, $frag_def);
         my $count = 1;
-        
+
         foreach (@frag_file) {
-        
+
             # first header found
             if (/^%%%/ && (not defined ($frag_def) or $frag_def eq "")) {
 
@@ -397,7 +430,7 @@ foreach my $frag_file (@frag_files) {
                 chomp ($frag_file);
                 unless (defined ($frag_file) && $frag_file ne "") {
                     do_log ("WARN: no fragment file name found in header at line $count [$hostname]")
-                }          
+                }
             } else {
                 # process fragment definition
                 $frag_def .= $_;
@@ -413,7 +446,7 @@ foreach my $frag_file (@frag_files) {
         $frag_file = fileparse ($frag_file, qr/\.[^.]*/);
         do_log ("INFO: fragment file $frag_file contains only 1 fragment on $hostname");
         $frags{$frag_file} = join (/\n/, @frag_file);
-    }   
+    }
     close (FRAGS);
 }
 
@@ -436,13 +469,13 @@ if ($? == 0) {
     do_log ("INFO: syntax check of sudo fragments is OK on $hostname");
     unlink $sudo_file;
 } else {
-    do_log "ERROR: visudo check failed: ".join ("\n", @syntax_check)." [$hostname]" 
+    do_log "ERROR: visudo check failed: ".join ("\n", @syntax_check)." [$hostname]"
     and exit(1);
 }
 
 # -----------------------------------------------------------------------------
 # read grant definitions
-# result: @grants (array): fragments for which grants have been defined 
+# result: @grants (array): fragments for which grants have been defined
 # for this server.
 # -----------------------------------------------------------------------------
 
@@ -453,7 +486,7 @@ open (GRANTS, "<", "${run_dir}/grants")
 while (<GRANTS>) {
 
     my ($what, $where, @what, @where);
-    
+
     chomp ();
     next if (/^$/ || /\#/);
     s/\s+//g;
@@ -465,10 +498,10 @@ while (<GRANTS>) {
         do_log ("WARN: ignoring line $. in 'grants' due to missing/non-resolving values [$hostname]");
         next;
     }
-    
+
     foreach my $grant (sort (@what)) {
         foreach my $server (sort (@where)) {
-            do_log ("DEBUG: adding grants for $grant on $server in \@grants") 
+            do_log ("DEBUG: adding grants for $grant on $server in \@grants")
                 if ($server eq $hostname);
             # add sudo fragment to grants list if the entry is for this host
             push (@grants, $grant) if ($server eq $hostname);
@@ -494,7 +527,7 @@ if ($preview && $global) {
     while (<GRANTS>) {
 
         my ($what, $where, @what, @where);
-    
+
         chomp ();
         next if (/^$/ || /\#/);
         s/\s+//g;
@@ -506,15 +539,15 @@ if ($preview && $global) {
             do_log ("WARN: ignoring line $. in 'grants' due to missing/non-resolving values [$hostname]");
             next;
         }
-    
+
         foreach my $grant (sort (@what)) {
             foreach my $server (sort (@where)) {
-                do_log ("$grant|$server") 
+                do_log ("$grant|$server")
             }
         }
     };
     close (GRANTS);
-    
+
     exit (0);
 }
 
@@ -527,48 +560,48 @@ do_log ("INFO: (de)-activating SUDO fragments ....");
 # check for SELinux
 unless ($preview) {
     SWITCH: {
-        $os eq "Linux" && do { 
+        $os eq "Linux" && do {
             $selinux_status = qx#/usr/sbin/getenforce 2>/dev/null#;
             chomp ($selinux_status);
             if ($selinux_status eq "Permissive" or $selinux_status eq "Enforcing") {
                 do_log ("INFO: runtime info: detected active SELinux system on $hostname");
                 $has_selinux = 1;
             }
-            last SWITCH; 
+            last SWITCH;
         };
     }
 }
 
 # remove previous fragment files first
 opendir (FRAGS_DIR, "${fragments_dir}")
-    or do_log ("ERROR: cannot open ${fragments_dir} directory [$! $hostname]") 
+    or do_log ("ERROR: cannot open ${fragments_dir} directory [$! $hostname]")
     and exit (1);
 while (my $frag_file = readdir (FRAGS_DIR)) {
     next if ($frag_file =~ /^\./ or $frag_file eq $immutable_self_file);
     # safe to ignore . (dot) files as sudo also does as well
-    
+
     unless ($preview) {
-        
+
         my $frag_file = "$fragments_dir/$frag_file";
-    
+
         if (unlink ($frag_file)) {
-            do_log ("INFO: de-activating fragment file $frag_file on $hostname");     
+            do_log ("INFO: de-activating fragment file $frag_file on $hostname");
         } else {
             do_log ("ERROR: cannot de-activate fragment file(s) [$! $hostname]");
             exit (1);
         }
     }
 }
-closedir (FRAGS_DIR);    
+closedir (FRAGS_DIR);
 
 # re-active current fragments
 foreach my $grant (@grants) {
 
     # do not create empty sudo files
     if (exists ($frags{$grant})) {
-    
+
         my $sudo_file = "$fragments_dir/$grant";
-        
+
         unless ($preview) {
             open (SUDO_FILE, "+>", $sudo_file)
                 or do_log ("ERROR: cannot open file for writing in $fragments_dir [$! $hostname]")
@@ -577,21 +610,21 @@ foreach my $grant (@grants) {
         print SUDO_FILE "$frags{$grant}\n" unless $preview;
         do_log ("INFO: activating fragment $grant on $hostname");
         close (SUDO_FILE) unless $preview;
-        
+
         # set permissions to world readable & SELinux contexts
         unless ($preview) {
             SWITCH: {
-                $os eq "HP-UX" && do { 
-                    set_file ($sudo_file, 0440, 2, 2); 
-                    last SWITCH; 
+                $os eq "HP-UX" && do {
+                    set_file ($sudo_file, 0440, 2, 2);
+                    last SWITCH;
                 };
-                $os eq "Linux" && do { 
+                $os eq "Linux" && do {
                     if ($has_selinux) {
                         system ("/usr/bin/chcon -t $selinux_context $sudo_file") == 0 or
                             do_log ("WARN: failed to set SELinux context $selinux_context on $sudo_file [$hostname]");
                     }
                     set_file ($sudo_file, 0440, 0, 0);
-                    last SWITCH;                
+                    last SWITCH;
                 };
             }
         }
@@ -613,20 +646,20 @@ unless ($preview) {
     print SELF_FILE $immutable_self_cmd."\n";
     do_log ("INFO: activating immutable self fragment $immutable_self_file on $hostname");
     SWITCH: {
-        $os eq "HP-UX" && do { 
-            set_file ($self_file, 0440, 2, 2); 
+        $os eq "HP-UX" && do {
+            set_file ($self_file, 0440, 2, 2);
             last SWITCH;
         };
-        $os eq "Linux" && do { 
+        $os eq "Linux" && do {
         if ($has_selinux) {
             system ("/usr/bin/chcon -t $selinux_context $self_file") == 0 or
                 do_log ("WARN: failed to set SELinux context $selinux_context on $self_file [$hostname]");
             }
             set_file ($self_file, 0440, 0, 0);
-            last SWITCH;                
+            last SWITCH;
         };
     }
-    close (SELF_FILE);   
+    close (SELF_FILE);
 }
 
 exit (0);
@@ -647,20 +680,20 @@ update_sudo.pl - distributes SUDO fragments according to a desired state model.
 
 =head1 SYNOPSIS
 
-    update_sudo.pl [-d|--debug] 
-                   [-h|--help] 
+    update_sudo.pl [-d|--debug]
+                   [-h|--help]
                    ([-p|--preview] [-g|--global])
                    [-v|--verbose]
                    [-V|--version]
 
-                 
+
 =head1 DESCRIPTION
 
 B<update_sudo.pl> distributes SUDO fragments into the C<$fragments_dir> repository based on the F<grants>, F<alias> and F<fragments> files.
-This script should be run on each host where SUDO is the required method of privilege escalation. 
+This script should be run on each host where SUDO is the required method of privilege escalation.
 
-For update SUDO fragments must be stored in a generic F<fragments> file within the same directory as B<update_sudo.pl> script. 
-Alternatively SUDO fragments may be stored as set of individual files within a called sub-directory called F<fragments.d>. 
+For update SUDO fragments must be stored in a generic F<fragments> file within the same directory as B<update_sudo.pl> script.
+Alternatively SUDO fragments may be stored as set of individual files within a called sub-directory called F<fragments.d>.
 Both methods are mutually exclusive and the latter always take precedence.
 
 =head1 CONFIGURATION
@@ -673,7 +706,7 @@ B<update_sudo.pl> requires the presence of at least one of the following configu
 
 =item * F<update_sudo.conf.local>
 
-=back 
+=back
 
 Use F<update_sudo.conf.local> for localized settings per host. Settings in the localized configuration file will always override other values.
 
@@ -714,12 +747,12 @@ S<       >Must be used in conjunction with the --preview option. This will dump 
 =item -v | --verbose
 
 S<       >Be verbose during exection.
-       
+
 =item -V | --version
 
 S<       >Show version of the script.
 
-=back 
+=back
 
 =head1 NOTES
 
@@ -729,20 +762,8 @@ S<       >Show version of the script.
 
 =item * Options may be bundled (e.g. -vp)
 
-=back 
+=back
 
 =head1 AUTHOR
 
 (c) KUDOS BVBA, Patrick Van der Veken
-
-=head1 HISTORY
-
-@(#) 2014-12-04: VRF 1.0.0: first version [Patrick Van der Veken]
-@(#) 2014-12-16: VRF 1.0.1: added SELinux context [Patrick Van der Veken]
-@(#) 2014-12-16: VRF 1.0.2: fixed a problem with the immutable self fragment code [Patrick Van der Veken]
-@(#) 2015-02-02: VRF 1.0.3: changed 'basename' into 'fileparse' call to support fragment files with extensions [Patrick Van der Veken]
-@(#) 2015-08-18: VRF 1.1.0: replace uname/hostname syscalls, now support for FQDN via $use_fqdn, other fixes [Patrick Van der Veken]
-@(#) 2015-08-26: VRF 1.1.1: small and not so small fixes [Patrick Van der Veken]
-@(#) 2015-08-27: VRF 1.1.2: small fix [Patrick Van der Veken]
-@(#) 2015-09-09: VRF 1.1.3: small selinux fix [Patrick Van der Veken]
-@(#) 2015-09-09: VRF 1.1.4: wrong handling of RC=0 in system() [Patrick Van der Veken]

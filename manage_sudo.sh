@@ -24,9 +24,9 @@
 #           check_setup(), check_syntax(), count_fields(), die(), display_usage(),
 #           distribute2host(), distribute2slave(), do_cleanup(), fix2host(),
 #           fix2slave(), get_linux_name(), get_linux_version(), log(), logc(),
-#           resolve_host(), sftp_file(), start_ssh_agent(), stop_ssh_agent(),
-#           update2host(), update2slave(), validate_syntax(), wait_for_children(),
-#           warn()
+#           resolve_alias(), resolve_host(), resolve_targets(), sftp_file(),
+#           start_ssh_agent(), stop_ssh_agent(), update2host(), update2slave(),
+#           validate_syntax(), wait_for_children(), warn()
 #           For other pre-requisites see the documentation in display_usage()
 #
 # -----------------------------------------------------------------------------
@@ -41,42 +41,63 @@
 # Below configuration values should not be changed. Use the GLOBAL_CONFIG_FILE
 # or LOCAL_CONFIG_FILE instead
 
-# define the V.R.F (version/release/fix)
-MY_VRF="1.6.0"
+# define the version (YYYY-MM-DD)
+typeset -r SCRIPT_VERSION="2018-11-03"
 # name of the global configuration file (script)
-GLOBAL_CONFIG_FILE="manage_sudo.conf"
+typeset -r GLOBAL_CONFIG_FILE="manage_sudo.conf"
 # name of the local configuration file (script)
-LOCAL_CONFIG_FILE="manage_sudo.conf.local"
+typeset -r LOCAL_CONFIG_FILE="manage_ssh.conf.local"
+# maxiumum depth of recursion for alias resolution
+typeset -r MAX_RECURSION=5
 # location of temporary working storage
-TMP_DIR="/var/tmp"
+typeset -r TMP_DIR="/var/tmp"
 # ------------------------- CONFIGURATION ends here ---------------------------
+# configuration file values
+typeset SUDO_TRANSFER_USER=""
+typeset SUDO_OWNER_GROUP=""
+typeset SUDO_UPDATE_USER=""
+typeset SUDO_UPDATE_OPTS=""
+typeset SSH_KEYSCAN_BIN=""
+typeset SSH_KEYSCAN_ARGS=""
+typeset BACKUP_DIR=""
+typeset LOCAL_DIR=""
+typeset LOG_DIR=""
+typeset REMOTE_DIR=""
+typeset DO_SFTP_CHMOD=""
+typeset SFTP_ARGS=""
+typeset DO_SSH_AGENT=""
+typeset SSH_ARGS=""
+typeset SSH_PRIVATE_KEY=""
+typeset VISUDO_BIN=""
+typeset MAX_BACKGROUND_PROCS=""
 # miscelleaneous
-PATH=${PATH}:/usr/bin:/usr/local/bin
-SCRIPT_NAME="$(basename $0)"
-SCRIPT_DIR="$(dirname $0)"
-OS_NAME="$(uname)"
-HOST_NAME="$(hostname)"
-FRAGS_FILE=""
-FRAGS_DIR=""
-TARGETS_FILE=""
-DO_SLAVE=0
-FIX_CREATE=0
-CAN_CHECK_SYNTAX=1
-CAN_DISCOVER_KEYS=1
-CAN_REMOVE_TEMP=1
-CAN_START_AGENT=1
-TMP_FILE="${TMP_DIR}/.${SCRIPT_NAME}.$$"
-TMP_RC_FILE="${TMP_DIR}/.${SCRIPT_NAME}.rc.$$"
+typeset PATH=${PATH}:/usr/bin:/usr/local/bin
+typeset SCRIPT_NAME=$(basename "$0")
+typeset SCRIPT_DIR=$(dirname "$0")
+typeset LOG_FILE=""
+typeset OS_NAME="$(uname -s)"
+typeset HOST_NAME="$(hostname)"
+typeset FRAGS_FILE=""
+typeset FRAGS_DIR=""
+typeset TARGETS_FILE=""
+typeset DO_SLAVE=0
+typeset FIX_CREATE=0
+typeset CAN_DISCOVER_KEYS=0
+typeset CAN_START_AGENT=1
+typeset TMP_FILE="${TMP_DIR}/.${SCRIPT_NAME}.$$"
+typeset TMP_RC_FILE="${TMP_DIR}/.${SCRIPT_NAME}.rc.$$"
 # command-line parameters
-ARG_ACTION=0            # default is nothing
-ARG_FIX_DIR=""          # location of SUDO controls directory
-ARG_LOG_DIR=""          # location of the log directory (~root etc)
-ARG_LOCAL_DIR=""        # location of the local SUDO control files
-ARG_REMOTE_DIR=""       # location of the remote SUDO control files
-ARG_TARGETS=""          # list of remote targets
-ARG_LOG=1               # logging is on by default
-ARG_VERBOSE=1           # STDOUT is on by default
-ARG_DEBUG=0             # debug is off by default
+typeset ARG_ACTION=0            # default is nothing
+typeset ARG_ALIAS=""            # alias to resolve
+typeset ARG_FIX_DIR=""          # location of SUDO controls directory
+typeset ARG_FIX_USER=""         # user to own SUDO controls files
+typeset ARG_LOG_DIR=""          # location of the log directory (~root etc)
+typeset ARG_LOCAL_DIR=""        # location of the local SSH control files
+typeset ARG_REMOTE_DIR=""       # location of the remote SSH control files
+typeset ARG_TARGETS=""          # list of remote targets
+typeset ARG_LOG=1               # logging is on by default
+typeset ARG_VERBOSE=1           # STDOUT is on by default
+typeset ARG_DEBUG=0             # debug is off by default
 
 
 #******************************************************************************
@@ -86,6 +107,8 @@ ARG_DEBUG=0             # debug is off by default
 # -----------------------------------------------------------------------------
 function check_config
 {
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+
 # SUDO_TRANSFER_USER
 if [[ -z "${SUDO_TRANSFER_USER}" ]]
 then
@@ -141,6 +164,12 @@ if [[ -z "${DO_SSH_AGENT}" ]]
 then
     print -u2 "ERROR:no value for the DO_SSH_AGENT setting in the configuration file"
     exit 1
+else
+    if (( DO_SSH_AGENT > 0 )) && [[ -z "${SSH_PRIVATE_KEY}" ]]
+    then
+        print -u2 "ERROR:no value for the SSH_PRIVATE_KEY setting in the configuration file"
+        exit 1
+    fi
 fi
 # MAX_BACKGROUND_PROCS
 if [[ -z "${MAX_BACKGROUND_PROCS}" ]]
@@ -161,7 +190,9 @@ return 0
 # -----------------------------------------------------------------------------
 function check_logging
 {
-if (( ARG_LOG ))
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+
+if (( ARG_LOG > 0 ))
 then
     if [[ ! -d "${LOG_DIR}" ]]
     then
@@ -189,8 +220,10 @@ return 0
 # -----------------------------------------------------------------------------
 function check_params
 {
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+
 # -- ALL
-if (( ARG_ACTION < 1 || ARG_ACTION > 10 ))
+if (( ARG_ACTION < 1 || ARG_ACTION > 11 ))
 then
     display_usage
     exit 0
@@ -204,6 +237,12 @@ then
         exit 1
     else
         FIX_DIR="${ARG_FIX_DIR}"
+    fi
+    if [[ -z "${ARG_FIX_USER}" ]]
+    then
+        SUDO_FIX_USER="${LOGNAME}"
+    else
+        SUDO_FIX_USER="${ARG_FIX_USER}"
     fi
 fi
 # --local-dir
@@ -247,12 +286,29 @@ then
         print ${TARGET_HOST} >>${TMP_FILE}
     done
 fi
-# --update + --fix-local
-if (( ARG_ACTION == 4 || ARG_ACTION == 5 ))
+# --update + --fix-local + --resolve-alias
+if (( ARG_ACTION == 4 || ARG_ACTION == 5 || ARG_ACTION == 11 ))
 then
-    if [[ -n "${TARGETS}" ]]
+    if [[ -n "${ARG_TARGETS}" ]]
     then
-        print -u2 "ERROR: you cannot specify '--targets' in this context!"
+        print -u2 "ERROR: you cannot specify '--targets' in this context"
+        exit 1
+    fi
+fi
+# --resolve-alias
+if (( ARG_ACTION == 11 ))
+then
+    if [[ -z "${ARG_ALIAS}" ]]
+    then
+        print -u2 "ERROR: you must specify an alias with the '--resolve-alias' option"
+        exit 1
+    fi
+fi
+if (( ARG_ACTION < 11 ))
+then
+    if [[ -n "${ARG_ALIAS}" ]]
+    then
+        print -u2 "ERROR: you cannot specify '--alias' in this context"
         exit 1
     fi
 fi
@@ -263,7 +319,11 @@ return 0
 # -----------------------------------------------------------------------------
 function check_root_user
 {
-(IFS='()'; set -- "$(id)"; print $2) | read UID
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+typeset UID=""
+
+# shellcheck disable=SC2046
+(IFS='()'; set -- $(id); print $2) | read UID
 if [[ "${UID}" = "root" ]]
 then
     return 0
@@ -275,6 +335,9 @@ fi
 # -----------------------------------------------------------------------------
 function check_setup
 {
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+typeset FILE=""
+
 # use added fall back for LOCAL_DIR (the default script directory)
 [[ -d "${LOCAL_DIR}" ]] || LOCAL_DIR="${SCRIPT_DIR}"
 
@@ -360,7 +423,7 @@ if (( DO_SSH_AGENT ))
 then
     # ssh-agent
     which ssh-agent >/dev/null 2>/dev/null
-    if (( $? ))
+    if (( $? > 0 ))
     then
         print -u2 "WARN: ssh-agent not available on ${HOST_NAME}"
         CAN_START_AGENT=0
@@ -379,6 +442,15 @@ return 0
 # -----------------------------------------------------------------------------
 function check_syntax
 {
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+typeset GRANTS_LINE=""
+typeset GRANTS_FIELDS=""
+typeset ALIASES_LINE=""
+typeset ALIAS_FIELDS=""
+typeset ALIAS=""
+typeset CHECK_ALIAS=""
+
+
 # grants should have 2 fields
 cat "${LOCAL_DIR}/grants" | grep -v -E -e '^#|^$' | while read GRANTS_LINE
 do
@@ -393,16 +465,54 @@ do
     (( ALIAS_FIELDS != 2 )) && die "line '${ALIAS_LINE}' in alias file has missing or too many field(s) (should be 2)"
 done
 
+# resolve aliases in grants
+awk 'BEGIN { needle="@[a-zA-Z0-9_-]+" }
+        {
+            if ($0 ~ /^#/) { next; }
+            while (match($0, needle)) {
+                print substr ($0, RSTART, RLENGTH);
+                $0 = substr ($0, RSTART + RLENGTH);
+        }
+    }' "${LOCAL_DIR}/grants" 2>/dev/null | sort -u 2>/dev/null |\
+while read -r ALIAS
+do
+    CHECK_ALIAS=$(resolve_alias "${ALIAS}" 0)
+    if [[ -z "${CHECK_ALIAS}" ]] || (( RC > 0 ))
+    then
+        die "unable to resolve alias ${ALIAS} in the grants file"
+    fi
+done
+
+# resolve aliases in alias
+awk 'BEGIN { needle="@[a-zA-Z0-9_-]+" }
+        {
+            if ($0 ~ /^#/) { next; }
+            while (match($0, needle)) {
+                print substr ($0, RSTART, RLENGTH);
+                $0 = substr ($0, RSTART + RLENGTH);
+        }
+    }' "${LOCAL_DIR}/alias" 2>/dev/null | sort -u 2>/dev/null |\
+while read -r ALIAS
+do
+    CHECK_ALIAS=$(resolve_alias "${ALIAS}" 0)
+    if [[ -z "${CHECK_ALIAS}" ]] || (( RC > 0 ))
+    then
+        die "unable to resolve alias ${ALIAS} in the alias file"
+    fi
+done
+
 return 0
 }
 
 # -----------------------------------------------------------------------------
 function count_fields
 {
-CHECK_LINE="$1"
-CHECK_DELIM="$2"
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+typeset CHECK_LINE="$1"
+typeset CHECK_DELIM="$2"
+typeset NUM_FIELDS=0
 
-NUM_FIELDS=$(print "${CHECK_LINE}" | awk -F "${CHECK_DELIM}" '{ print NF }')
+NUM_FIELDS=$(print "${CHECK_LINE}" | awk -F "${CHECK_DELIM}" '{ print NF }' 2>/dev/null)
 
 print ${NUM_FIELDS}
 
@@ -412,11 +522,14 @@ return 0
 # -----------------------------------------------------------------------------
 function die
 {
-NOW="$(date '+%d-%h-%Y %H:%M:%S')"
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+typeset NOW="$(date '+%d-%h-%Y %H:%M:%S')"
+typeset LOG_LINE=""
+typeset LOG_SIGIL=""
 
 if [[ -n "$1" ]]
 then
-    if (( ARG_LOG ))
+    if (( ARG_LOG > 0 ))
     then
         print - "$*" | while read LOG_LINE
         do
@@ -455,9 +568,6 @@ then
     done
 fi
 
-# finish up work
-do_cleanup
-
 exit 1
 }
 
@@ -475,11 +585,13 @@ remote, validate SUDO syntax or copy/distribute the SUDO controls files
 Syntax: ${SCRIPT_DIR}/${SCRIPT_NAME} [--help] | (--backup | --check-syntax | --check-sudo | --preview-global | --update) |
             (--apply [--slave] [--remote-dir=<remote_directory>] [--targets=<host1>,<host2>,...]) |
                 ((--copy|--distribute) [--slave] [--remote-dir=<remote_directory> [--targets=<host1>,<host2>,...]]) |
-                    (--discover [--targets=<host1>,<host2>,...]) |
-                        ([--fix-local --fix-dir=<repository_dir> [--create-dir]] | [--fix-remote [--slave] [--create-dir] [--targets=<host1>,<host2>,...]])
+                    (--discover [--targets=<host1>,<host2>,...]) | (--resolve-alias --alias=<alias_name>)
+                        ([--fix-local --fix-dir=<repository_dir> [--fix-user=<unix_account>] [--create-dir]] | [--fix-remote [--slave] [--create-dir] [--targets=<host1>,<host2>,...]])
                             [--local-dir=<local_directory>] [--no-log] [--log-dir=<log_directory>] [--debug]
+
 Parameters:
 
+--alias             : name of the alias to process
 --apply|-a          : apply SUDO controls remotely (~targets)
 --backup|-b         : create a backup of the SUDO controls repository (SUDO master)
 --check-syntax|-s   : do basic syntax checking on SUDO controls configuration
@@ -495,18 +607,20 @@ Parameters:
 --fix-local         : fix permissions on the local SUDO controls repository
                       (local SUDO controls repository given by --fix-dir)
 --fix-remote        : fix permissions on the remote SUDO controls repository
+--fix-user          : UNIX account to own SUDO controls files [default: current user]
 --help|-h           : this help text
 --local-dir         : location of the SUDO control files on the local filesystem.
                       [default: see LOCAL_DIR setting]
 --log-dir           : specify a log directory location.
 --no-log            : do not log any messages to the script log file.
---preview-global|-p : dump the global grant namespace (after alias resolution)
+--preview-global|-p : dump the global grants namespace (after alias resolution)
 --remote-dir        : directory where SUDO control files are/should be
                       located/copied on/to the target host
                       [default: see REMOTE_DIR setting]
+--resolve-alias|-r  : resolve an alias into its individual components
 --slave             : perform actions in master->slave mode
---targets           : comma-separated list of target hosts to operate on. Override the
-                      hosts contained in the 'targets' configuration file.
+--targets           : comma-separated list of target hosts or @groups to operate on.
+                      Overrides hosts/@groups contained in the 'targets' file.
 --update|-u         : apply SUDO controls locally
 --version|-V        : show the script version/release/fix
 
@@ -528,12 +642,17 @@ return 0
 # distribute SUDO controls to a single host/client
 function distribute2host
 {
-SERVER="$1"
-ERROR_COUNT=0
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+typeset SERVER="$1"
+typeset ERROR_COUNT=0
+typeset FILE=""
+typeset COPY_RC=0
+typeset TMP_WORK_DIR=""
+
 # convert line to hostname
 SERVER=${SERVER%%;*}
 resolve_host ${SERVER}
-if (( $? ))
+if (( $? > 0 ))
 then
     warn "could not lookup host ${SERVER}, skipping"
     return 1
@@ -551,7 +670,7 @@ do
     # sftp transfer
     sftp_file ${FILE} ${SERVER}
     COPY_RC=$?
-    if (( ! COPY_RC ))
+    if (( COPY_RC == 0 ))
     then
         log "transferred ${FILE%!*} to ${SERVER}:${REMOTE_DIR}"
     else
@@ -565,7 +684,7 @@ if [[ -n "${FRAGS_DIR}" ]]
 then
     TMP_WORK_DIR="${TMP_DIR}/$0.${RANDOM}"
     mkdir -p ${TMP_WORK_DIR}
-    if (( $? ))
+    if (( $? > 0 ))
     then
         die "unable to create temporary directory ${TMP_WORK_DIR} for mangling of 'fragments' file"
     fi
@@ -578,7 +697,7 @@ then
     # sftp transfer
     sftp_file "${TMP_MERGE_FILE}!640" ${SERVER}
     COPY_RC=$?
-    if (( ! COPY_RC ))
+    if (( COPY_RC == 0 ))
     then
         log "transferred ${TMP_MERGE_FILE} to ${SERVER}:${REMOTE_DIR}"
     else
@@ -589,7 +708,7 @@ then
 else
     sftp_file "${FRAGS_FILE}!640" ${SERVER}
     COPY_RC=$?
-    if (( ! COPY_RC ))
+    if (( COPY_RC == 0 ))
     then
         log "transferred ${FRAGS_FILE} to ${SERVER}:${REMOTE_DIR}"
     else
@@ -606,19 +725,27 @@ return ${ERROR_COUNT}
 # distribute SUDO controls to a single host in slave mode
 function distribute2slave
 {
-SERVER="$1"
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+typeset SERVER="$1"
+typeset DISTRIBUTE_OPTS=""
+typeset RC=0
 
 # convert line to hostname
 SERVER=${SERVER%%;*}
 resolve_host ${SERVER}
-if (( $? ))
+if (( $? > 0 ))
 then
     warn "could not lookup host ${SERVER}, skipping"
     return 1
 fi
+# propagate the --debug flag
+if (( ARG_DEBUG > 0 ))
+then
+    DISTRIBUTE_OPTS="${DISTRIBUTE_OPTS} --debug"
+fi
 
 log "copying SUDO controls on ${SERVER} in slave mode, this may take a while ..."
-( RC=0; ssh -A ${SSH_ARGS} ${SERVER} ${REMOTE_DIR}/${SCRIPT_NAME} --copy;
+( RC=0; ssh -A ${SSH_ARGS} ${SERVER} ${REMOTE_DIR}/${SCRIPT_NAME} --copy ${DISTRIBUTE_OPTS};
       print "$?" > ${TMP_RC_FILE}; exit
 ) 2>&1 | logc
 
@@ -631,6 +758,7 @@ return ${RC}
 # -----------------------------------------------------------------------------
 function do_cleanup
 {
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
 log "performing cleanup ..."
 
 # remove temporary file(s)
@@ -638,7 +766,7 @@ log "performing cleanup ..."
 [[ -f ${TMP_MERGE_FILE} ]] && rm -f ${TMP_MERGE_FILE} >/dev/null 2>&1
 [[ -f ${TMP_RC_FILE} ]] && rm -f ${TMP_RC_FILE} >/dev/null 2>&1
 # temporary scan file (syntax check)
-if (( CAN_REMOVE_TEMP ))
+if (( CAN_REMOVE_TEMP > 0 ))
 then
     [[ -f ${TMP_SCAN_FILE} ]] && rm -f ${TMP_SCAN_FILE} >/dev/null 2>&1
 fi
@@ -653,34 +781,48 @@ return 0
 # !! requires appropriate 'sudo' rules on remote client for privilege elevation
 function fix2host
 {
-SERVER="$1"
-SERVER_DIR="$2"
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+typeset SERVER="$1"
+typeset SERVER_DIR="$2"
+typeset SERVER_USER="$3"
+typeset FIX_OPTS=""
+typeset RC=0
 
 # convert line to hostname
 SERVER=${SERVER%%;*}
 resolve_host ${SERVER}
-if (( $? ))
+if (( $? > 0 ))
 then
     warn "could not lookup host ${SERVER}, skipping"
     return 1
+fi
+# propagate the --create-dir flag
+if (( FIX_CREATE > 0 ))
+then
+    FIX_OPTS="${FIX_OPTS} --create-dir"
+fi
+# propagate the --debug flag
+if (( ARG_DEBUG > 0 ))
+then
+    FIX_OPTS="${FIX_OPTS} --debug"
 fi
 
 log "fixing SUDO controls on ${SERVER} ..."
 if [[ -z "${SUDO_UPDATE_USER}" ]]
 then
     # own user w/ sudo
-    ( RC=0; ssh ${SSH_ARGS} ${SERVER} sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --fix-local --fix-dir=${SERVER_DIR};
+    ( RC=0; ssh ${SSH_ARGS} ${SERVER} sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --fix-local --fix-dir=${SERVER_DIR} --fix-user=${SERVER_USER} ${FIX_OPTS};
       print "$?" > ${TMP_RC_FILE}; exit
     ) 2>&1 | logc
 elif [[ "${SUDO_UPDATE_USER}" != "root" ]]
 then
     # other user w/ sudo
-    ( RC=0; ssh ${SSH_ARGS} ${SUDO_UPDATE_USER}@${SERVER} sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --fix-local --fix-dir=${SERVER_DIR};
+    ( RC=0; ssh ${SSH_ARGS} ${SUDO_UPDATE_USER}@${SERVER} sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --fix-local --fix-dir=${SERVER_DIR} --fix-user=${SERVER_USER} ${FIX_OPTS};
       print "$?" > ${TMP_RC_FILE}; exit
     ) 2>&1 | logc
 else
     # root user w/o sudo
-    ( RC=0; ssh ${SSH_ARGS} root@${SERVER} ${REMOTE_DIR}/${SCRIPT_NAME} --fix-local --fix-dir=${SERVER_DIR};
+    ( RC=0; ssh ${SSH_ARGS} root@${SERVER} ${REMOTE_DIR}/${SCRIPT_NAME} --fix-local --fix-dir=${SERVER_DIR} --fix-user="root" ${FIX_OPTS};
       print "$?" > ${TMP_RC_FILE}; exit
     ) 2>&1 | logc
 fi
@@ -696,20 +838,34 @@ return ${RC}
 # !! requires appropriate 'sudo' rules on remote client for privilege elevation
 function fix2slave
 {
-SERVER="$1"
-SERVER_DIR="$2"
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+typeset SERVER="$1"
+typeset SERVER_DIR="$2"
+typeset SERVER_USER="$3"
+typeset FIX_OPTS=""
+typeset RC=0
 
 # convert line to hostname
 SERVER=${SERVER%%;*}
 resolve_host ${SERVER}
-if (( $? ))
+if (( $? > 0 ))
 then
     warn "could not lookup host ${SERVER}, skipping"
     return 1
 fi
+# propagate the --create-dir flag
+if (( FIX_CREATE > 0 ))
+then
+    FIX_OPTS="${FIX_OPTS} --create-dir"
+fi
+# propagate the --debug flag
+if (( ARG_DEBUG > 0 ))
+then
+    FIX_OPTS="${FIX_OPTS} --debug"
+fi
 
-log "fixing sudo controls on ${SERVER} in slave mode, this may take a while ..."
-( RC=0; ssh -A ${SSH_ARGS} ${SERVER} ${REMOTE_DIR}/${SCRIPT_NAME} --fix-remote --fix-dir=${SERVER_DIR};
+log "fixing SUDO controls on ${SERVER} in slave mode, this may take a while ..."
+( RC=0; ssh -A ${SSH_ARGS} ${SERVER} ${REMOTE_DIR}/${SCRIPT_NAME} --fix-remote --fix-dir=${SERVER_DIR} --fix-user=${SERVER_USER} ${FIX_OPTS};
     print "$?" > ${TMP_RC_FILE}; exit
 ) 2>&1 | logc
 
@@ -722,7 +878,8 @@ return ${RC}
 # -----------------------------------------------------------------------------
 function get_linux_name
 {
-LSB_NAME="$(lsb_release -is 2>/dev/null | cut -f2 -d':')"
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+typeset LSB_NAME="$(lsb_release -is 2>/dev/null | cut -f2 -d':' 2>/dev/null)"
 
 print "${LSB_NAME}"
 
@@ -732,7 +889,12 @@ return 0
 # -----------------------------------------------------------------------------
 function get_linux_version
 {
-LSB_VERSION="$(lsb_release -rs 2>/dev/null | cut -f1 -d'.')"
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+typeset LSB_VERSION
+typeset RELEASE_STRING=""
+typeset RHEL_VERSION=""
+
+LSB_VERSION="$(lsb_release -rs 2>/dev/null | cut -f1 -d'.' 2>/dev/null)"
 
 if [[ -z "${LSB_VERSION}" ]]
 then
@@ -764,12 +926,15 @@ return 0
 # log an INFO: message (via ARG).
 function log
 {
-NOW="$(date '+%d-%h-%Y %H:%M:%S')"
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+typeset NOW="$(date '+%d-%h-%Y %H:%M:%S')"
+typeset LOG_LINE=""
+typeset LOG_SIGIL=""
 
 # log an INFO: message (via ARG).
 if [[ -n "$1" ]]
 then
-    if (( ARG_LOG ))
+    if (( ARG_LOG > 0 ))
     then
         print - "$*" | while read LOG_LINE
         do
@@ -794,7 +959,7 @@ then
             print "${NOW}: ${LOG_SIGIL}: [$$]:" "${LOG_LINE}" >>${LOG_FILE}
         done
     fi
-    if (( ARG_VERBOSE ))
+    if (( ARG_VERBOSE > 0 ))
     then
         print - "$*" | while read LOG_LINE
         do
@@ -816,17 +981,20 @@ return 0
 
 # -----------------------------------------------------------------------------
 # log an INFO: message (via STDIN). Do not use when STDIN is still open
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
 # shellcheck disable=SC2120
 function logc
 {
-NOW="$(date '+%d-%h-%Y %H:%M:%S')"
-LOG_STDIN=""
+typeset NOW="$(date '+%d-%h-%Y %H:%M:%S')"
+typeset LOG_STDIN=""
+typeset LOG_LINE=""
+typeset LOG_SIGIL=""
 
 # process STDIN (if any)
 [[ ! -t 0 ]] && LOG_STDIN="$(cat)"
 if [[ -n "${LOG_STDIN}" ]]
 then
-    if (( ARG_LOG ))
+    if (( ARG_LOG > 0 ))
     then
         print - "${LOG_STDIN}" | while read LOG_LINE
         do
@@ -851,7 +1019,7 @@ then
             print "${NOW}: ${LOG_SIGIL}: [$$]:" "${LOG_LINE}" >>${LOG_FILE}
         done
     fi
-    if (( ARG_VERBOSE ))
+    if (( ARG_VERBOSE > 0 ))
     then
         print - "${LOG_STDIN}" | while read LOG_LINE
         do
@@ -871,7 +1039,7 @@ fi
 # process ARG (if any)
 if [[ -n "$1" ]]
 then
-    if (( ARG_LOG != 0 ))
+    if (( ARG_LOG > 0 ))
     then
         print - "$*" | while read LOG_LINE
         do
@@ -896,7 +1064,7 @@ then
             print "${NOW}: ${LOG_SIGIL}: [$$]:" "${LOG_LINE}" >>${LOG_FILE}
         done
     fi
-    if (( ARG_VERBOSE != 0 ))
+    if (( ARG_VERBOSE > 0 ))
     then
         print - "$*" | while read LOG_LINE
         do
@@ -911,6 +1079,80 @@ then
         done
     fi
 fi
+
+return 0
+}
+
+# -----------------------------------------------------------------------------
+# resolve an alias
+function resolve_alias
+{
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+typeset NEEDLE="$1"
+typeset RECURSION_COUNT=$2
+typeset ALIASES_LINE=""
+typeset ALIAS_LIST=""
+typeset ALIAS=""
+typeset EXPANDED_ALIASES=""
+
+# check MAX_RECURSION to avoid segmentation faults
+if (( RECURSION_COUNT > MAX_RECURSION ))
+then
+    # don't scramble function output with warn(), only use for ARG_LOG
+    # go back up in the recursion tree or exit resolution call
+    print -u2 "WARN: resolving alias for ${NEEDLE} has exceeded a recursion depth of ${MAX_RECURSION}"
+    ARG_VERBOSE=0 warn "resolving alias for ${NEEDLE} has exceeded a recursion depth of ${MAX_RECURSION}"
+    return 1
+fi
+
+# get aliases from alias line
+ALIASES_LINE=$(grep -E -e "^${NEEDLE}.*:" ${LOCAL_DIR}/alias 2>/dev/null | cut -f2 -d':' 2>/dev/null)
+
+if [[ -z "${ALIASES_LINE}" ]]
+then
+    # don't scramble function output with warn(), only use for ARG_LOG
+    # go back up in the recursion tree or exit resolution call
+    print -u2 "WARN: alias ${NEEDLE} does not resolve or is empty"
+    ARG_VERBOSE=0 warn "alias ${NEEDLE} does not resolve or is empty"
+    return 1
+fi
+
+# expand alias line into individual aliases
+for ALIAS in ${ALIASES_LINE//,/ }
+do
+    # recurse if the alias is a group
+    if [[ "${ALIAS}" =~ ^\@ ]]
+    then
+        RECURSION_COUNT=$(( RECURSION_COUNT + 1 ))
+        EXPANDED_ALIASES=$(resolve_alias "${ALIAS}" ${RECURSION_COUNT})
+        RECURSION_COUNT=$(( RECURSION_COUNT - 1 ))
+        if (( $? == 0 ))
+        then
+            if [[ -z "${ALIAS_LIST}" ]]
+            then
+            	ALIAS_LIST="${EXPANDED_ALIASES}"
+            else
+            	ALIAS_LIST="${ALIAS_LIST}\n${EXPANDED_ALIASES}"
+            fi
+        # if the recursion fails, return the current output list
+        # and go back up into the recursion tree
+        else
+            print "${ALIAS_LIST}"
+            return 1
+        fi
+    # if the alias is not a group, just add it to the output list
+    else
+        if [[ -z "${ALIAS_LIST}" ]]
+        then
+            ALIAS_LIST="${ALIAS}"
+        else
+            ALIAS_LIST="${ALIAS_LIST}\n${ALIAS}"
+        fi
+    fi
+done
+
+# sort final output and hand it back to the caller
+print "${ALIAS_LIST}" | sort -u 2>/dev/null
 
 return 0
 }
@@ -946,17 +1188,65 @@ return 0
 # resolve a host (check)
 function resolve_host
 {
-nslookup "$1" 2>/dev/null | grep -q -E -e 'Address:.*([0-9]{1,3}[\.]){3}[0-9]{1,3}'
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+nslookup "$1" 2>/dev/null | grep -q -E -e 'Address:.*([0-9]{1,3}[\.]){3}[0-9]{1,3}' 2>/dev/null
 
 return $?
+}
+
+# -----------------------------------------------------------------------------
+# resolve targets (file)
+function resolve_targets
+{
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+typeset TARGETS_LIST=""
+typeset EXPANDED_TARGETS=""
+typeset TARGET=""
+
+grep -v -E -e '^#' -e '^$' "${TARGETS_FILE}" 2>/dev/null | while read -r TARGET
+do
+    # resolve group target
+    if [[ "${TARGET}" =~ ^\@ ]]
+    then
+        EXPANDED_TARGETS=$(resolve_alias "${TARGET}" 0)
+        if (( $? == 0 ))
+        then
+            if [[ -z "${TARGETS_LIST}" ]]
+            then
+                TARGETS_LIST="${EXPANDED_TARGETS}"
+            else
+                TARGETS_LIST="${TARGETS_LIST}\n${EXPANDED_TARGETS}"
+            fi
+        fi
+    # add individual target
+    else
+        if [[ -z "${TARGETS_LIST}" ]]
+        then
+            TARGETS_LIST="${TARGET}"
+        else
+            TARGETS_LIST="${TARGETS_LIST}\n${TARGET}"
+        fi
+    fi
+done
+
+# sort final output and hand it back to the caller
+print "${TARGETS_LIST}" | grep -v '^$' 2>/dev/null | sort -u 2>/dev/null
+
+return $0
 }
 
 # -----------------------------------------------------------------------------
 # transfer a file using sftp
 function sftp_file
 {
-TRANSFER_FILE="$1"
-TRANSFER_HOST="$2"
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+typeset TRANSFER_FILE="$1"
+typeset TRANSFER_HOST="$2"
+typeset TRANSFER_DIR=""
+typeset TRANSFER_PERMS=""
+typeset SOURCE_FILE=""
+typeset OLD_PWD=""
+typeset SFTP_RC=0
 
 # find the local directory & permission bits
 TRANSFER_DIR="${TRANSFER_FILE%/*}"
@@ -964,11 +1254,12 @@ TRANSFER_PERMS="${TRANSFER_FILE##*!}"
 # cut out the permission bits and the directory path
 TRANSFER_FILE="${TRANSFER_FILE%!*}"
 SOURCE_FILE="${TRANSFER_FILE##*/}"
+# shellcheck disable=SC2164
 OLD_PWD=$(pwd)
 cd ${TRANSFER_DIR} || return 1
 
 # transfer, (possibly) chmod the file to/on the target server (keep STDERR)
-if (( DO_SFTP_CHMOD ))
+if (( DO_SFTP_CHMOD > 1 ))
 then
     sftp ${SFTP_ARGS} ${SUDO_TRANSFER_USER}@${TRANSFER_HOST} >/dev/null <<EOT
 cd ${REMOTE_DIR}
@@ -993,6 +1284,8 @@ return ${SFTP_RC}
 # start a SSH agent
 function start_ssh_agent
 {
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+
 log "requested to start an SSH agent on ${HOST_NAME} ..."
 
 # is there one still running, then we re-use it
@@ -1016,7 +1309,7 @@ fi
 # add the private key
 log "adding private key ${SSH_PRIVATE_KEY} to SSH agent on ${HOST_NAME} ..."
 log "$(ssh-add ${SSH_PRIVATE_KEY} 2>&1)"
-if (( $? ))
+if (( $(ssh-add -l 2>/dev/null | wc -l 2>/dev/null) == 0 ))
 then
     warn "unable to add SSH private key to SSH agent on ${HOST_NAME}"
     return 1
@@ -1028,6 +1321,8 @@ return 0
 # -----------------------------------------------------------------------------
 function stop_ssh_agent
 {
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+
 # stop the SSH agent
 log "stopping SSH agent (if needed) on ${HOST_NAME} ..."
 
@@ -1052,7 +1347,7 @@ else
 fi
 
 # process check
-if (( $(pgrep -u "${USER}" ssh-agent | grep -c "${SSH_AGENT_PID}") ))
+if (( $(pgrep -u "${USER}" ssh-agent | grep -c "${SSH_AGENT_PID}" 2>/dev/null) ))
 then
     warn "unable to stop running SSH agent on ${HOST_NAME} [PID=${SSH_AGENT_PID}]"
     return 1
@@ -1066,33 +1361,41 @@ return 0
 # !! requires appropriate 'sudo' rules on remote client for privilege elevation
 function update2host
 {
-SERVER="$1"
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+typeset SERVER="$1"
+typeset UPDATE_OPTS=""
+typeset RC=0
 
 # convert line to hostname
 SERVER=${SERVER%%;*}
 resolve_host ${SERVER}
-if (( $? ))
+if (( $? > 0 ))
 then
     warn "could not lookup host ${SERVER}, skipping"
     return 1
+fi
+# propagate the --debug flag
+if (( ARG_DEBUG > 0 ))
+then
+    UPDATE_OPTS="${UPDATE_OPTS} --debug"
 fi
 
 log "setting SUDO controls on ${SERVER} ..."
 if [[ -z "${SUDO_UPDATE_USER}" ]]
 then
     # own user w/ sudo
-    ( RC=0; ssh ${SSH_ARGS} ${SERVER} sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --update;
+    ( RC=0; ssh ${SSH_ARGS} ${SERVER} sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --update ${UPDATE_OPTS};
       print "$?" > ${TMP_RC_FILE}; exit
     ) 2>&1 | logc
 elif [[ "${SUDO_UPDATE_USER}" != "root" ]]
 then
     # other user w/ sudo
-    ( RC=0; ssh ${SSH_ARGS} ${SUDO_UPDATE_USER}@${SERVER} sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --update;
+    ( RC=0; ssh ${SSH_ARGS} ${SUDO_UPDATE_USER}@${SERVER} sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --update ${UPDATE_OPTS};
       print "$?" > ${TMP_RC_FILE}; exit
     ) 2>&1 | logc
 else
     # root user w/o sudo
-    ( RC=0; ssh ${SSH_ARGS} root@${SERVER} ${REMOTE_DIR}/${SCRIPT_NAME} --update;
+    ( RC=0; ssh ${SSH_ARGS} root@${SERVER} ${REMOTE_DIR}/${SCRIPT_NAME} --update ${UPDATE_OPTS};
       print "$?" > ${TMP_RC_FILE}; exit
     ) 2>&1 | logc
 fi
@@ -1107,19 +1410,27 @@ return ${RC}
 # update SUDO controls on a single host/client in slave mode
 function update2slave
 {
-SERVER="$1"
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+typeset SERVER="$1"
+typeset UPDATE_OPTS=""
+typeset RC=0
 
 # convert line to hostname
 SERVER=${SERVER%%;*}
 resolve_host ${SERVER}
-if (( $? ))
+if (( $? > 0 ))
 then
     warn "could not lookup host ${SERVER}, skipping"
     return 1
 fi
+# propagate the --debug flag
+if (( ARG_DEBUG > 0 ))
+then
+    UPDATE_OPTS="${UPDATE_OPTS} --debug"
+fi
 
 log "applying SUDO controls on ${SERVER} in slave mode, this may take a while ..."
-( RC=0; ssh -A ${SSH_ARGS} ${SERVER} ${REMOTE_DIR}/${SCRIPT_NAME} --apply;
+( RC=0; ssh -A ${SSH_ARGS} ${SERVER} ${REMOTE_DIR}/${SCRIPT_NAME} --apply ${UPDATE_OPTS};
       print "$?" > ${TMP_RC_FILE}; exit
 ) 2>&1 | logc
 
@@ -1133,26 +1444,29 @@ return ${RC}
 # wait for child processes to exit
 function wait_for_children
 {
-WAIT_ERRORS=0
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+typeset WAIT_ERRORS=0
+typeset PID=""
+typeset RC=0
 
 # 'endless' loop :-)
 while :
 do
-    (( ARG_DEBUG )) && print -u2 "child processes remaining: $*"
+    (( ARG_DEBUG > 0 )) && print -u2 "child processes remaining: $*"
     for PID in "$@"
     do
         shift
         # child is still alive?
         if kill -0 ${PID} 2>/dev/null
         then
-            (( ARG_DEBUG )) && print -u2 "DEBUG: ${PID} is still alive"
+            (( ARG_DEBUG > 0 )) && print -u2 "DEBUG: ${PID} is still alive"
             set -- "$@" "${PID}"
         # wait for sigchild, catching child exit codes is unreliable because
         # the child might have already ended before we get here (caveat emptor)
         else
             wait ${PID}
             RC=$?
-            if (( ${RC} ))
+            if (( RC > 0 ))
             then
                 warn "child process ${PID} exited [RC=${RC}]"
                 WAIT_ERRORS=$(( WAIT_ERRORS + 1 ))
@@ -1162,7 +1476,7 @@ do
         fi
     done
     # break loop if we have no child PIDs left
-    (($# > 0)) || break
+    (( $# > 0 )) || break
     sleep 1     # required to avoid race conditions
 done
 
@@ -1172,11 +1486,14 @@ return ${WAIT_ERRORS}
 # -----------------------------------------------------------------------------
 function warn
 {
-NOW="$(date '+%d-%h-%Y %H:%M:%S')"
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
+typeset NOW="$(date '+%d-%h-%Y %H:%M:%S')"
+typeset LOG_LINE=""
+typeset LOG_SIGIL=""
 
 if [[ -n "$1" ]]
 then
-    if (( ARG_LOG ))
+    if (( ARG_LOG > 0 ))
     then
         print - "$*" | while read LOG_LINE
         do
@@ -1201,7 +1518,7 @@ then
             print "${NOW}: ${LOG_SIGIL}: [$$]:" "${LOG_LINE}" >>${LOG_FILE}
         done
     fi
-    if (( ARG_VERBOSE ))
+    if (( ARG_VERBOSE > 0 ))
     then
         print - "$*" | while read LOG_LINE
         do
@@ -1232,21 +1549,21 @@ for PARAMETER in ${CMD_LINE}
 do
     case ${PARAMETER} in
         -a|-apply|--apply)
-            (( ARG_ACTION )) && {
+            (( ARG_ACTION > 0 )) && {
                 print -u2 "ERROR: multiple actions specified"
                 exit 1
             }
             ARG_ACTION=1
             ;;
         -b|-backup|--backup)
-            (( ARG_ACTION )) && {
+            (( ARG_ACTION > 0 )) && {
                 print -u2 "ERROR: multiple actions specified"
                 exit 1
             }
             ARG_ACTION=9
             ;;
         -c|-copy|--copy)
-            (( ARG_ACTION )) && {
+            (( ARG_ACTION > 0 )) && {
                 print -u2 "ERROR: multiple actions specified"
                 exit 1
             }
@@ -1256,14 +1573,14 @@ do
             ARG_DEBUG=1
             ;;
         -distribute|--distribute)
-            (( ARG_ACTION )) && {
+            (( ARG_ACTION > 0 )) && {
                 print -u2 "ERROR: multiple actions specified"
                 exit 1
             }
             ARG_ACTION=2
             ;;
         -d|-discover|--discover)
-            (( ARG_ACTION )) && {
+            (( ARG_ACTION > 0 )) && {
                 print -u2 "ERROR: multiple actions specified"
                 exit 1
             }
@@ -1273,35 +1590,35 @@ do
             CAN_DISCOVER_KEYS=1
             ;;
         -p|--preview-global|-preview-global)
-            (( ARG_ACTION )) && {
+            (( ARG_ACTION > 0 )) && {
                 print -u2 "ERROR: multiple actions specified"
                 exit 1
             }
             ARG_ACTION=7
             ;;
-        -m|-make-finger|--make-finger)
-            (( ARG_ACTION )) && {
-                print -u2 "ERROR: multiple actions specified"
-                exit 1
-            }
-            ARG_ACTION=3
-            ;;
         -fix-local|--fix-local)
-            (( ARG_ACTION )) && {
+            (( ARG_ACTION > 0 )) && {
                 print -u2 "ERROR: multiple actions specified"
                 exit 1
             }
             ARG_ACTION=5
             ;;
         -fix-remote|--fix-remote)
-            (( ARG_ACTION )) && {
+            (( ARG_ACTION > 0 )) && {
                 print -u2 "ERROR: multiple actions specified"
                 exit 1
             }
             ARG_ACTION=6
             ;;
+        -r|-resolve-alias|--resolve-alias)
+            (( ARG_ACTION > 0 )) && {
+                print -u2 "ERROR: multiple actions specified"
+                exit 1
+            }
+            ARG_ACTION=11
+            ;;
         -s|-check-syntax|--check-syntax)
-            (( ARG_ACTION )) && {
+            (( ARG_ACTION > 0 )) && {
                 print -u2 "ERROR: multiple actions specified"
                 exit 1
             }
@@ -1318,11 +1635,17 @@ do
             CAN_REMOVE_TEMP=1
             ;;
         -u|-update|--update)
-            (( ARG_ACTION )) && {
+            (( ARG_ACTION > 0 )) && {
                 print -u2 "ERROR: multiple actions specified"
                 exit 1
             }
             ARG_ACTION=4
+            ;;
+        -alias=*)
+            ARG_ALIAS="${PARAMETER#-alias=}"
+            ;;
+        --alias=*)
+            ARG_ALIAS="${PARAMETER#--alias=}"
             ;;
         -create-dir|--create-dir)
             FIX_CREATE=1
@@ -1332,6 +1655,12 @@ do
             ;;
         --fix-dir=*)
             ARG_FIX_DIR="${PARAMETER#--fix-dir=}"
+            ;;
+        -fix-user=*)
+            ARG_FIX_USER="${PARAMETER#-fix-user=}"
+            ;;
+        --fix-user=*)
+            ARG_FIX_USER="${PARAMETER#--fix-user=}"
             ;;
         -local-dir=*)
             ARG_LOCAL_DIR="${PARAMETER#-local-dir=}"
@@ -1364,10 +1693,14 @@ do
             ARG_TARGETS="${PARAMETER#--targets=}"
             ;;
         -V|-version|--version)
-            print "INFO: $0: ${MY_VRF}"
+            print "INFO: $0: ${SCRIPT_VERSION}"
             exit 0
             ;;
         \? | -h | -help | --help)
+            display_usage
+            exit 0
+            ;;
+        *)
             display_usage
             exit 0
             ;;
@@ -1395,10 +1728,18 @@ fi
 check_params && check_config && check_setup && check_logging
 
 # catch shell signals
-trap 'do_cleanup; exit' 1 2 3 15
+trap 'do_cleanup; exit 0' 0
+trap 'do_cleanup; exit 1' 1 2 3 15
+
+# set debugging options
+if (( ARG_DEBUG > 0 ))
+then
+    DEBUG_OPTS='-vx'
+    set "${DEBUG_OPTS}"
+fi
 
 log "*** start of ${SCRIPT_NAME} [${CMD_LINE}] /$$@${HOST_NAME}/ ***"
-(( ARG_LOG )) && log "logging takes places in ${LOG_FILE}"
+(( ARG_LOG > 0 )) && log "logging takes places in ${LOG_FILE}"
 
 log "runtime info: LOCAL_DIR is set to: ${LOCAL_DIR}"
 
@@ -1408,33 +1749,33 @@ case ${ARG_ACTION} in
         # check for root or non-root model
         if [[ "${SUDO_UPDATE_USER}" != "root" ]]
         then
-  check_root_user && die "must NOT be run as user 'root'"
+            check_root_user && die "must NOT be run as user 'root'"
         fi
+
+        # build clients list
+        CLIENTS=$(resolve_targets)
+        if [[ -z "${CLIENTS}" ]]
+        then
+            die "no targets to process"
+        else
+            log "processing targets: $(print ${CLIENTS} | tr -s '\n' ' ' 2>/dev/null)"
+        fi
+
         # start SSH agent (if needed)
-        if (( DO_SSH_AGENT && CAN_START_AGENT ))
+        if (( DO_SSH_AGENT > 0 && CAN_START_AGENT > 0 ))
         then
             start_ssh_agent
-            if (( $? ))
+            if (( $? > 0 ))
             then
                 die "problem with launching an SSH agent, bailing out"
             fi
         fi
-        # build clients list (in array)
-        cat "${TARGETS_FILE}" | grep -v -E -e '^#' -e '^$' |\
-        {
-            I=0
-            set -A CLIENTS
-            while read LINE
-            do
-                CLIENTS[${I}]="${LINE}"
-                I=$(( I + 1 ))
-            done
-        }
+
         # set max updates in background
         COUNT=${MAX_BACKGROUND_PROCS}
-        for CLIENT in "${CLIENTS[@]}"
+        print "${CLIENTS}" | while read -r CLIENT
         do
-            if (( DO_SLAVE ))
+            if (( DO_SLAVE > 0 ))
             then
                 update2slave ${CLIENT} &
             else
@@ -1459,7 +1800,7 @@ case ${ARG_ACTION} in
         wait_for_children ${PIDS} || \
             warn "$? background jobs (possibly) failed to complete correctly"
         # stop SSH agent if needed
-        (( DO_SSH_AGENT && CAN_START_AGENT )) && \
+        (( DO_SSH_AGENT > 0 && CAN_START_AGENT > 0 )) && \
             stop_ssh_agent
         log "finished applying SUDO controls remotely"
         ;;
@@ -1468,31 +1809,31 @@ case ${ARG_ACTION} in
         # check for root or non-root model
         if [[ "${SUDO_UPDATE_USER}" != "root" ]]
         then
-  check_root_user && die "must NOT be run as user 'root'"
+            check_root_user && die "must NOT be run as user 'root'"
         fi
+
+        # build clients list
+        CLIENTS=$(resolve_targets)
+        if [[ -z "${CLIENTS}" ]]
+        then
+            die "no targets to process"
+        else
+            log "processing targets: $(print ${CLIENTS} | tr -s '\n' ' ' 2>/dev/null)"
+        fi
+
         # start SSH agent (if needed)
-        if (( DO_SSH_AGENT && CAN_START_AGENT ))
+        if (( DO_SSH_AGENT > 0 && CAN_START_AGENT > 0 ))
         then
             start_ssh_agent
-            if (( $? ))
+            if (( $? > 0 ))
             then
                 die "problem with launching an SSH agent, bailing out"
             fi
         fi
-        # build clients list (in array)
-        cat "${TARGETS_FILE}" | grep -v -E -e '^#' -e '^$' |\
-        {
-            I=0
-            set -A CLIENTS
-            while read LINE
-            do
-                CLIENTS[${I}]="${LINE}"
-                I=$(( I + 1 ))
-            done
-        }
+
         # set max updates in background
         COUNT=${MAX_BACKGROUND_PROCS}
-        for CLIENT in "${CLIENTS[@]}"
+        print "${CLIENTS}" | while read -r CLIENT
         do
             if (( DO_SLAVE ))
             then
@@ -1519,7 +1860,7 @@ case ${ARG_ACTION} in
         wait_for_children ${PIDS} || \
             warn "$? background jobs (possibly) failed to complete correctly"
         # stop SSH agent if needed
-        (( DO_SSH_AGENT && CAN_START_AGENT )) && \
+        (( DO_SSH_AGENT > 0 && CAN_START_AGENT > 0 )) && \
             stop_ssh_agent
         log "finished copying/distributing SUDO controls"
         ;;
@@ -1567,7 +1908,7 @@ case ${ARG_ACTION} in
         ) 2>&1 | logc
         # fetch return code from subshell
         RC="$(< ${TMP_RC_FILE})"
-        if (( RC ))
+        if (( RC > 0 ))
         then
             die "failed to apply SUDO controls locally [RC=${RC}]"
         else
@@ -1577,7 +1918,12 @@ case ${ARG_ACTION} in
     5)  # fix directory structure/perms/ownerships
         log "ACTION: fix local SUDO controls repository"
         check_root_user || die "must be run as user 'root'"
-        if (( FIX_CREATE ))
+        log "resetting ownerships to UNIX user ${SUDO_FIX_USER}"
+        if [[ ${SUDO_FIX_USER} = "root" ]]
+        then
+            warn "!!! resetting ownerships to user root !!!"
+        fi
+        if (( FIX_CREATE > 0 ))
         then
             log "you requested to create directories (if needed)"
         else
@@ -1585,7 +1931,7 @@ case ${ARG_ACTION} in
         fi
 
         # check if the SUDO control repo is already there
-        if [[ ${FIX_CREATE} -eq 1 && ! -d "${FIX_DIR}" ]]
+        if (( FIX_CREATE > 0 )) && [[ ! -d "${FIX_DIR}" ]]
         then
             # create stub directories
             mkdir -p "${FIX_DIR}/holding" 2>/dev/null || \
@@ -1602,7 +1948,7 @@ case ${ARG_ACTION} in
             if [[ -d "${FIX_DIR}/holding" ]]
             then
                 chmod 2775 "${FIX_DIR}/holding" 2>/dev/null && \
-                    chown root:${SUDO_OWNER_GROUP} "${FIX_DIR}/holding" 2>/dev/null
+                    chown ${SUDO_FIX_USER}:${SUDO_OWNER_GROUP} "${FIX_DIR}/holding" 2>/dev/null
             fi
             if [[ -d "${FIX_DIR}/sudoers.d" ]]
             then
@@ -1624,7 +1970,7 @@ case ${ARG_ACTION} in
                 if [[ -f "${FIX_DIR}/holding/${FILE}" ]]
                 then
                     chmod 660 "${FIX_DIR}/holding/${FILE}" 2>/dev/null && \
-                        chown root:${SUDO_OWNER_GROUP} "${FIX_DIR}/holding/${FILE}" 2>/dev/null
+                        chown ${SUDO_FIX_USER}:${SUDO_OWNER_GROUP} "${FIX_DIR}/holding/${FILE}" 2>/dev/null
                 fi
             done
             for FILE in manage_sudo.sh update_sudo.pl
@@ -1632,14 +1978,14 @@ case ${ARG_ACTION} in
                 if [[ -f "${FIX_DIR}/holding/${FILE}" ]]
                 then
                     chmod 770 "${FIX_DIR}/holding/${FILE}" 2>/dev/null && \
-                        chown root:${SUDO_OWNER_GROUP} "${FIX_DIR}/holding/${FILE}" 2>/dev/null
+                        chown ${SUDO_FIX_USER}:${SUDO_OWNER_GROUP} "${FIX_DIR}/holding/${FILE}" 2>/dev/null
                 fi
             done
             # log file
             if [[ -f "${LOG_FILE}" ]]
             then
                 chmod 664 "${LOG_FILE}" 2>/dev/null && \
-                    chown root:${SUDO_OWNER_GROUP} "${LOG_FILE}" 2>/dev/null
+                    chown ${SUDO_FIX_USER}:${SUDO_OWNER_GROUP} "${LOG_FILE}" 2>/dev/null
             fi
             # check for SELinux labels
             case ${OS_NAME} in
@@ -1675,40 +2021,46 @@ case ${ARG_ACTION} in
     6)  # fix remote directory structure/perms/ownerships
         log "ACTION: fix remote SUDO controls repository"
         check_root_user && die "must NOT be run as user 'root'"
-        # start SSH agent (if needed)
-        if (( DO_SSH_AGENT && CAN_START_AGENT ))
+        # check for root or non-root model
+        if [[ "${SUDO_UPDATE_USER}" != "root" ]]
         then
-            start_ssh_agent
-            if (( $? ))
-            then
-                die "problem with launching an SSH agent, bailing out"
-            fi
+            check_root_user && die "must NOT be run as user 'root'"
         fi
+
         # derive SUDO controls repo from $REMOTE_DIR:
         # /etc/sudo_controls/holding -> /etc/sudo_controls
         FIX_DIR="$(print ${REMOTE_DIR%/*})"
         [[ -z "${FIX_DIR}" ]] && \
             die "could not determine SUDO controls repo path from \$REMOTE_DIR?"
-        # build clients list (in array)
-        cat "${TARGETS_FILE}" | grep -v -E -e '^#' -e '^$' |\
-        {
-            I=0
-            set -A CLIENTS
-            while read LINE
-            do
-                CLIENTS[${I}]="${LINE}"
-                I=$(( I + 1 ))
-            done
-        }
+
+        # build clients list
+        CLIENTS=$(resolve_targets)
+        if [[ -z "${CLIENTS}" ]]
+        then
+            die "no targets to process"
+        else
+            log "processing targets: $(print ${CLIENTS} | tr -s '\n' ' ' 2>/dev/null)"
+        fi
+
+        # start SSH agent (if needed)
+        if (( DO_SSH_AGENT > 0 && CAN_START_AGENT > 0 ))
+        then
+            start_ssh_agent
+            if (( $? > 0 ))
+            then
+                die "problem with launching an SSH agent, bailing out"
+            fi
+        fi
+
         # set max updates in background
         COUNT=${MAX_BACKGROUND_PROCS}
-        for CLIENT in "${CLIENTS[@]}"
+        print "${CLIENTS}" | while read -r CLIENT
         do
-            if (( DO_SLAVE ))
+            if (( DO_SLAVE > 0 ))
             then
-                fix2slave ${CLIENT} "${FIX_DIR}" &
+                fix2slave ${CLIENT} "${FIX_DIR}" "${SUDO_UPDATE_USER}" &
             else
-                fix2host ${CLIENT} "${FIX_DIR}" &
+                fix2host ${CLIENT} "${FIX_DIR}" "${SUDO_UPDATE_USER}" &
             fi
             PID=$!
             log "fixing SUDO controls on ${CLIENT} in background [PID=${PID}] ..."
@@ -1729,7 +2081,7 @@ case ${ARG_ACTION} in
         wait_for_children ${PIDS} || \
             warn "$? background jobs (possibly) failed to complete correctly"
         # stop SSH agent if needed
-        (( DO_SSH_AGENT && CAN_START_AGENT )) && \
+        (( DO_SSH_AGENT > 0 && CAN_START_AGENT > 0 )) && \
             stop_ssh_agent
         log "finished applying fixes to the remote SUDO control repository"
         ;;
@@ -1774,17 +2126,33 @@ case ${ARG_ACTION} in
         ;;
     10) # gather SSH host keys
         log "ACTION: gathering SSH host keys ..."
-        if (( CAN_DISCOVER_KEYS ))
+        if (( CAN_DISCOVER_KEYS > 0 ))
         then
-            cat "${TARGETS_FILE}" | grep -v -E -e '^#' -e '^$' |\
-                ${SSH_KEYSCAN_BIN} ${SSH_KEYSCAN_ARGS} -f -
+            CLIENTS=$(resolve_targets)
+            if [[ -z "${CLIENTS}" ]]
+            then
+                die "no targets to process"
+            else
+                log "processing targets: $(print ${CLIENTS} | tr -s '\n' ' ' 2>/dev/null)"
+            fi
+            print "${CLIENTS}" | ${SSH_KEYSCAN_BIN} ${SSH_KEYSCAN_ARGS} -f - 2>/dev/null
         fi
         log "finished gathering SSH host keys"
         ;;
+    11) # resolve an alias
+        log "ACTION: resolving alias ${ARG_ALIAS} ..."
+        RESOLVE_ALIAS=$(resolve_alias "${ARG_ALIAS}" 0)
+        if (( $? > 0 )) && [[ -z "${RESOLVE_ALIAS}" ]]
+        then
+            die "alias ${ARG_ALIAS} did not resolve correctly"
+        else
+            log "alias ${ARG_ALIAS} resolves to: $(print ${RESOLVE_ALIAS} | tr -s '\n' ' ' 2>/dev/null)"
+        fi
+        log "finished resolving alias"
+        ;;
 esac
 
-# finish up work
-do_cleanup
+exit 0
 
 #******************************************************************************
 # END of script
