@@ -14,7 +14,7 @@ SUDO Controls is a light-weight **SUDO fragments/rules** distribution & manageme
 
 * allows the use of (nested) **groups** in the master configuration: fragments and hosts can be grouped in the SUDO master configuration files to allow a simplified configuration. Nesting of groups is allowed up to *5 levels* deep.
 
-* allow the use of (nested) **groups** in the specification of the *push* targets. Either via the `--targets` command-line parameter or via the `targets` configuration file.
+* allows the use of (nested) **groups** in the specification of the *push* targets. Either via the `--targets` command-line parameter or via the `targets` configuration file.
 
 * can discover SSH host public keys to (re)create `known_hosts` file(s) for a large amount of hosts
 
