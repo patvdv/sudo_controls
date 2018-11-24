@@ -1093,6 +1093,7 @@ typeset RECURSION_COUNT=$2
 typeset ALIASES_LINE=""
 typeset ALIAS_LIST=""
 typeset ALIAS=""
+typeset IS_ALIAS=0
 typeset EXPANDED_ALIASES=""
 
 # check MAX_RECURSION to avoid segmentation faults
@@ -1121,7 +1122,8 @@ fi
 for ALIAS in ${ALIASES_LINE//,/ }
 do
     # recurse if the alias is a group
-    if [[ "${ALIAS}" =~ ^\@ ]]
+    IS_ALIAS=$(print "${ALIAS}" | grep -c -E -e '^\@' 2>/dev/null)
+    if (( IS_ALIAS > 0 ))
     then
         RECURSION_COUNT=$(( RECURSION_COUNT + 1 ))
         EXPANDED_ALIASES=$(resolve_alias "${ALIAS}" ${RECURSION_COUNT})
@@ -1202,11 +1204,13 @@ function resolve_targets
 typeset TARGETS_LIST=""
 typeset EXPANDED_TARGETS=""
 typeset TARGET=""
+typeset IS_TARGET=0
 
 grep -v -E -e '^#' -e '^$' "${TARGETS_FILE}" 2>/dev/null | while read -r TARGET
 do
     # resolve group target
-    if [[ "${TARGET}" =~ ^\@ ]]
+    IS_TARGET=$(print "${TARGET}" | grep -c -E -e '^\@' 2>/dev/null)
+    if (( IS_TARGET > 0 ))
     then
         EXPANDED_TARGETS=$(resolve_alias "${TARGET}" 0)
         if (( $? == 0 ))
