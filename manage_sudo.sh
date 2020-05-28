@@ -42,7 +42,7 @@
 # or LOCAL_CONFIG_FILE instead
 
 # define the version (YYYY-MM-DD)
-typeset -r SCRIPT_VERSION="2018-11-03"
+typeset -r SCRIPT_VERSION="2020-05-28"
 # name of the global configuration file (script)
 typeset -r GLOBAL_CONFIG_FILE="manage_sudo.conf"
 # name of the local configuration file (script)
@@ -1253,7 +1253,7 @@ typeset OLD_PWD=""
 typeset SFTP_RC=0
 
 # find the local directory & permission bits
-TRANSFER_DIR="${TRANSFER_FILE%/*}"
+TRANSFER_DIR=$(dirname "${TRANSFER_FILE%%!*}")
 TRANSFER_PERMS="${TRANSFER_FILE##*!}"
 # cut out the permission bits and the directory path
 TRANSFER_FILE="${TRANSFER_FILE%!*}"
