@@ -44,7 +44,7 @@ use File::Temp qw(tempfile);
 
 # ------------------------- CONFIGURATION starts here -------------------------
 # define the version (YYYY-MM-DD)
-my $script_version = "2018-11-03";
+my $script_version = "2020-12-30";
 # name of global configuration file (no path, must be located in the script directory)
 my $global_config_file = "update_sudo.conf";
 # name of localized configuration file (no path, must be located in the script directory)
@@ -98,7 +98,7 @@ sub parse_config_file {
         if (/^\s*$/ || /^#/) {
             next;
         } else {
-            if (/^\s*use_fqdn\s*=\s*([0-9]+)\s*$/) {
+            if (/^\s*use_fqdn\s*=\s*(0|1)\s*$/) {
                 $use_fqdn = $1;
                 do_log ("DEBUG: picking up setting: use_fqdn=${use_fqdn}");
             }
@@ -229,7 +229,7 @@ $verbose = 1 if ($options{'verbose'});
 
 # where am I? (1/2)
 $0 =~ /^(.+[\\\/])[^\\\/]+[\\\/]*$/;
-my $run_dir = $1 || ".";
+$run_dir = $1 || ".";
 $run_dir =~ s#/$##;     # remove trailing slash
 
 # don't do anything without configuration file(s)
@@ -445,7 +445,7 @@ foreach my $frag_file (@frag_files) {
         # strip off path from file name for hash key
         $frag_file = fileparse ($frag_file, qr/\.[^.]*/);
         do_log ("INFO: fragment file $frag_file contains only 1 fragment on $hostname");
-        $frags{$frag_file} = join (/\n/, @frag_file);
+        $frags{$frag_file} = join ("\n", @frag_file);
     }
     close (FRAGS);
 }
@@ -692,7 +692,7 @@ update_sudo.pl - distributes SUDO fragments according to a desired state model.
 B<update_sudo.pl> distributes SUDO fragments into the C<$fragments_dir> repository based on the F<grants>, F<alias> and F<fragments> files.
 This script should be run on each host where SUDO is the required method of privilege escalation.
 
-For update SUDO fragments must be stored in a generic F<fragments> file within the same directory as B<update_sudo.pl> script.
+Orginally SUDO fragments must be stored in a generic F<fragments> file within the same directory as B<update_sudo.pl> script.
 Alternatively SUDO fragments may be stored as set of individual files within a called sub-directory called F<fragments.d>.
 Both methods are mutually exclusive and the latter always take precedence.
 

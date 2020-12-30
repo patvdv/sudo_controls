@@ -1,5 +1,13 @@
 <p align="center"><img src="logo.png" alt="SUDO Controls Logo"></p>
 
+## What's new
+
+:loudspeaker: **30/12/2020**:
+* added support for SELinux (CentOS/RHEL 8.x)
+* various fixes
+
+## About
+
 SUDO Controls is a light-weight **SUDO fragments/rules** distribution & management framework which:
 
 * uses a **desired state** model: SUDO Controls *pushes* fragments from a master (or slave) server onto client host(s) and applies them according to the central configuration.

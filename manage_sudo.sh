@@ -42,7 +42,7 @@
 # or LOCAL_CONFIG_FILE instead
 
 # define the version (YYYY-MM-DD)
-typeset -r SCRIPT_VERSION="2020-05-28"
+typeset -r SCRIPT_VERSION="2020-12-30"
 # name of the global configuration file (script)
 typeset -r GLOBAL_CONFIG_FILE="manage_sudo.conf"
 # name of the local configuration file (script)
@@ -279,11 +279,11 @@ fi
 # --targets
 if [[ -n "${ARG_TARGETS}" ]]
 then
-    : > ${TMP_FILE}
+    : > "${TMP_FILE}"
     # write comma-separated target list to the temporary file
-    print "${ARG_TARGETS}" | tr -s ',' '\n' | while read TARGET_HOST
+    print "${ARG_TARGETS}" | tr -s ',' '\n' | while read -r TARGET_HOST
     do
-        print ${TARGET_HOST} >>${TMP_FILE}
+        print "${TARGET_HOST}" >>"${TMP_FILE}"
     done
 fi
 # --update + --fix-local + --resolve-alias
@@ -323,7 +323,7 @@ function check_root_user
 typeset UID=""
 
 # shellcheck disable=SC2046
-(IFS='()'; set -- $(id); print $2) | read UID
+(IFS='()'; set -- $(id); print "$2") | read -r UID
 if [[ "${UID}" = "root" ]]
 then
     return 0
@@ -423,6 +423,7 @@ if (( DO_SSH_AGENT ))
 then
     # ssh-agent
     which ssh-agent >/dev/null 2>/dev/null
+    # shellcheck disable=SC2181
     if (( $? > 0 ))
     then
         print -u2 "WARN: ssh-agent not available on ${HOST_NAME}"
@@ -450,16 +451,15 @@ typeset ALIAS_FIELDS=""
 typeset ALIAS=""
 typeset CHECK_ALIAS=""
 
-
 # grants should have 2 fields
-cat "${LOCAL_DIR}/grants" | grep -v -E -e '^#|^$' | while read GRANTS_LINE
+grep -v -E -e '^#|^$' "${LOCAL_DIR}/grants" 2>/dev/null | while read -r GRANTS_LINE
 do
     GRANTS_FIELDS=$(count_fields "${GRANTS_LINE}" ":")
     (( GRANTS_FIELDS != 2 )) && die "line '${GRANTS_LINE}' in grants file has missing or too many field(s) (should be 2)"
 done
 
 # alias should have 2 fields
-cat "${LOCAL_DIR}/alias" | grep -v -E -e '^#|^$' | while read ALIAS_LINE
+grep -v -E -e '^#|^$' "${LOCAL_DIR}/alias" 2>/dev/null | while read -r ALIAS_LINE
 do
     ALIAS_FIELDS=$(count_fields "${ALIAS_LINE}" ":")
     (( ALIAS_FIELDS != 2 )) && die "line '${ALIAS_LINE}' in alias file has missing or too many field(s) (should be 2)"
@@ -514,6 +514,7 @@ typeset NUM_FIELDS=0
 
 NUM_FIELDS=$(print "${CHECK_LINE}" | awk -F "${CHECK_DELIM}" '{ print NF }' 2>/dev/null)
 
+# shellcheck disable=SC2086
 print ${NUM_FIELDS}
 
 return 0
@@ -531,7 +532,7 @@ if [[ -n "$1" ]]
 then
     if (( ARG_LOG > 0 ))
     then
-        print - "$*" | while read LOG_LINE
+        print - "$*" | while read -r LOG_LINE
         do
             # check for leading log sigils and retain them
             case "${LOG_LINE}" in
@@ -551,10 +552,10 @@ then
                     LOG_SIGIL="ERROR"
                     ;;
             esac
-            print "${NOW}: ${LOG_SIGIL}: [$$]:" "${LOG_LINE}" >>${LOG_FILE}
+            print "${NOW}: ${LOG_SIGIL}: [$$]:" "${LOG_LINE}" >>"${LOG_FILE}"
         done
     fi
-    print - "$*" | while read LOG_LINE
+    print - "$*" | while read -r LOG_LINE
     do
         # check for leading log sigils and retain them
         case "${LOG_LINE}" in
@@ -650,8 +651,9 @@ typeset COPY_RC=0
 typeset TMP_WORK_DIR=""
 
 # convert line to hostname
-SERVER=${SERVER%%;*}
-resolve_host ${SERVER}
+SERVER="${SERVER%%;*}"
+resolve_host "${SERVER}"
+# shellcheck disable=SC2181
 if (( $? > 0 ))
 then
     warn "could not lookup host ${SERVER}, skipping"
@@ -668,7 +670,7 @@ for FILE in "${LOCAL_DIR}/grants!660" \
             "${SCRIPT_DIR}/${GLOBAL_CONFIG_FILE}!660"
 do
     # sftp transfer
-    sftp_file ${FILE} ${SERVER}
+    sftp_file "${FILE}" "${SERVER}"
     COPY_RC=$?
     if (( COPY_RC == 0 ))
     then
@@ -683,30 +685,33 @@ done
 if [[ -n "${FRAGS_DIR}" ]]
 then
     TMP_WORK_DIR="${TMP_DIR}/$0.${RANDOM}"
-    mkdir -p ${TMP_WORK_DIR}
+    mkdir -p "${TMP_WORK_DIR}"
+    # shellcheck disable=SC2181
     if (( $? > 0 ))
     then
         die "unable to create temporary directory ${TMP_WORK_DIR} for mangling of 'fragments' file"
     fi
     # merge fragments file(s) before copy (in a temporary location)
-    merge_fragments ${TMP_WORK_DIR}
-    if (( $? ))
+    merge_fragments "${TMP_WORK_DIR}"
+    # shellcheck disable=SC2181
+    if (( $? > 0 ))
     then
         die "failed to merge fragments into the temporary file ${TMP_MERGE_FILE}"
     fi
     # sftp transfer
-    sftp_file "${TMP_MERGE_FILE}!640" ${SERVER}
+    sftp_file "${TMP_MERGE_FILE}!640" "${SERVER}"
     COPY_RC=$?
     if (( COPY_RC == 0 ))
     then
+        # shellcheck disable=SC2086
         log "transferred ${TMP_MERGE_FILE} to ${SERVER}:${REMOTE_DIR}"
     else
         warn "failed to transfer ${TMP_MERGE_FILE%!*} to ${SERVER}:${REMOTE_DIR} [RC=${COPY_RC}]"
         ERROR_COUNT=$(( ERROR_COUNT + 1 ))
     fi
-    [[ -d ${TMP_WORK_DIR} ]] && rm -rf ${TMP_WORK_DIR} 2>/dev/null
+    [[ -d "${TMP_WORK_DIR}" ]] && rm -rf "${TMP_WORK_DIR}" 2>/dev/null
 else
-    sftp_file "${FRAGS_FILE}!640" ${SERVER}
+    sftp_file "${FRAGS_FILE}!640" "${SERVER}"
     COPY_RC=$?
     if (( COPY_RC == 0 ))
     then
@@ -720,7 +725,6 @@ fi
 return ${ERROR_COUNT}
 }
 
-
 # -----------------------------------------------------------------------------
 # distribute SUDO controls to a single host in slave mode
 function distribute2slave
@@ -731,8 +735,9 @@ typeset DISTRIBUTE_OPTS=""
 typeset RC=0
 
 # convert line to hostname
-SERVER=${SERVER%%;*}
-resolve_host ${SERVER}
+SERVER="${SERVER%%;*}"
+resolve_host "${SERVER}"
+# shellcheck disable=SC2181
 if (( $? > 0 ))
 then
     warn "could not lookup host ${SERVER}, skipping"
@@ -745,13 +750,15 @@ then
 fi
 
 log "copying SUDO controls on ${SERVER} in slave mode, this may take a while ..."
-( RC=0; ssh -A ${SSH_ARGS} ${SERVER} ${REMOTE_DIR}/${SCRIPT_NAME} --copy ${DISTRIBUTE_OPTS};
-      print "$?" > ${TMP_RC_FILE}; exit
-) 2>&1 | logc
+# shellcheck disable=SC2029
+( RC=0; ssh -A ${SSH_ARGS} "${SERVER}" "${REMOTE_DIR}/${SCRIPT_NAME} --copy ${DISTRIBUTE_OPTS}";
+      print "$?" > "${TMP_RC_FILE}"; exit
+) 2>&1 | logc ""
 
 # fetch return code from subshell
-RC="$(< ${TMP_RC_FILE})"
+RC=$(< "${TMP_RC_FILE}")
 
+# shellcheck disable=SC2086
 return ${RC}
 }
 
@@ -762,13 +769,13 @@ function do_cleanup
 log "performing cleanup ..."
 
 # remove temporary file(s)
-[[ -f ${TMP_FILE} ]] && rm -f ${TMP_FILE} >/dev/null 2>&1
-[[ -f ${TMP_MERGE_FILE} ]] && rm -f ${TMP_MERGE_FILE} >/dev/null 2>&1
-[[ -f ${TMP_RC_FILE} ]] && rm -f ${TMP_RC_FILE} >/dev/null 2>&1
+[[ -f "${TMP_FILE}" ]] && rm -f "${TMP_FILE}" >/dev/null 2>&1
+[[ -f "${TMP_MERGE_FILE}" ]] && rm -f "${TMP_MERGE_FILE}" >/dev/null 2>&1
+[[ -f "${TMP_RC_FILE}" ]] && rm -f "${TMP_RC_FILE}" >/dev/null 2>&1
 # temporary scan file (syntax check)
 if (( CAN_REMOVE_TEMP > 0 ))
 then
-    [[ -f ${TMP_SCAN_FILE} ]] && rm -f ${TMP_SCAN_FILE} >/dev/null 2>&1
+    [[ -f "${TMP_SCAN_FILE}" ]] && rm -f "${TMP_SCAN_FILE}" >/dev/null 2>&1
 fi
 
 log "*** finish of ${SCRIPT_NAME} [${CMD_LINE}] /$$@${HOST_NAME}/ ***"
@@ -789,8 +796,9 @@ typeset FIX_OPTS=""
 typeset RC=0
 
 # convert line to hostname
-SERVER=${SERVER%%;*}
-resolve_host ${SERVER}
+SERVER="${SERVER%%;*}"
+resolve_host "${SERVER}"
+# shellcheck disable=SC2181
 if (( $? > 0 ))
 then
     warn "could not lookup host ${SERVER}, skipping"
@@ -811,25 +819,29 @@ log "fixing SUDO controls on ${SERVER} ..."
 if [[ -z "${SUDO_UPDATE_USER}" ]]
 then
     # own user w/ sudo
-    ( RC=0; ssh ${SSH_ARGS} ${SERVER} sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --fix-local --fix-dir=${SERVER_DIR} --fix-user=${SERVER_USER} ${FIX_OPTS};
-      print "$?" > ${TMP_RC_FILE}; exit
-    ) 2>&1 | logc
+    # shellcheck disable=SC2029
+    ( RC=0; ssh ${SSH_ARGS} "${SERVER}" "sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --fix-local --fix-dir=${SERVER_DIR} --fix-user=${SERVER_USER} ${FIX_OPTS}";
+      print "$?" > "${TMP_RC_FILE}"; exit
+    ) 2>&1 | logc ""
 elif [[ "${SUDO_UPDATE_USER}" != "root" ]]
 then
     # other user w/ sudo
-    ( RC=0; ssh ${SSH_ARGS} ${SUDO_UPDATE_USER}@${SERVER} sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --fix-local --fix-dir=${SERVER_DIR} --fix-user=${SERVER_USER} ${FIX_OPTS};
-      print "$?" > ${TMP_RC_FILE}; exit
-    ) 2>&1 | logc
+    # shellcheck disable=SC2029
+    ( RC=0; ssh ${SSH_ARGS} "${SUDO_UPDATE_USER}@${SERVER}" "sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --fix-local --fix-dir=${SERVER_DIR} --fix-user=${SERVER_USER} ${FIX_OPTS}";
+      print "$?" > "${TMP_RC_FILE}"; exit
+    ) 2>&1 | logc ""
 else
     # root user w/o sudo
-    ( RC=0; ssh ${SSH_ARGS} root@${SERVER} ${REMOTE_DIR}/${SCRIPT_NAME} --fix-local --fix-dir=${SERVER_DIR} --fix-user="root" ${FIX_OPTS};
-      print "$?" > ${TMP_RC_FILE}; exit
-    ) 2>&1 | logc
+    # shellcheck disable=SC2029
+    ( RC=0; ssh ${SSH_ARGS} "root@${SERVER}" "${REMOTE_DIR}/${SCRIPT_NAME} --fix-local --fix-dir=${SERVER_DIR} --fix-user=root ${FIX_OPTS}";
+      print "$?" > "${TMP_RC_FILE}"; exit
+    ) 2>&1 | logc ""
 fi
 
 # fetch return code from subshell
-RC="$(< ${TMP_RC_FILE})"
+RC=$(< "${TMP_RC_FILE}")
 
+# shellcheck disable=SC2086
 return ${RC}
 }
 
@@ -846,8 +858,9 @@ typeset FIX_OPTS=""
 typeset RC=0
 
 # convert line to hostname
-SERVER=${SERVER%%;*}
-resolve_host ${SERVER}
+SERVER="${SERVER%%;*}"
+resolve_host "${SERVER}"
+# shellcheck disable=SC2181
 if (( $? > 0 ))
 then
     warn "could not lookup host ${SERVER}, skipping"
@@ -865,13 +878,15 @@ then
 fi
 
 log "fixing SUDO controls on ${SERVER} in slave mode, this may take a while ..."
-( RC=0; ssh -A ${SSH_ARGS} ${SERVER} ${REMOTE_DIR}/${SCRIPT_NAME} --fix-remote --fix-dir=${SERVER_DIR} --fix-user=${SERVER_USER} ${FIX_OPTS};
-    print "$?" > ${TMP_RC_FILE}; exit
-) 2>&1 | logc
+# shellcheck disable=SC2029
+( RC=0; ssh -A ${SSH_ARGS} "${SERVER}" "${REMOTE_DIR}/${SCRIPT_NAME} --fix-remote --fix-dir=${SERVER_DIR} --fix-user=${SERVER_USER} ${FIX_OPTS}";
+    print "$?" > "${TMP_RC_FILE}"; exit
+) 2>&1 | logc ""
 
 # fetch return code from subshell
-RC="$(< ${TMP_RC_FILE})"
+RC=$(< "${TMP_RC_FILE}")
 
+# shellcheck disable=SC2086
 return ${RC}
 }
 
@@ -910,6 +925,9 @@ then
         *release\ 7*)
             RHEL_VERSION=7
             ;;
+        *release\ 8*)
+            RHEL_VERSION=7
+            ;;
         *)
             RHEL_VERSION=""
             ;;
@@ -936,7 +954,7 @@ if [[ -n "$1" ]]
 then
     if (( ARG_LOG > 0 ))
     then
-        print - "$*" | while read LOG_LINE
+        print - "$*" | while read -r LOG_LINE
         do
             # check for leading log sigils and retain them
             case "${LOG_LINE}" in
@@ -956,12 +974,12 @@ then
                     LOG_SIGIL="INFO"
                     ;;
             esac
-            print "${NOW}: ${LOG_SIGIL}: [$$]:" "${LOG_LINE}" >>${LOG_FILE}
+            print "${NOW}: ${LOG_SIGIL}: [$$]:" "${LOG_LINE}" >>"${LOG_FILE}"
         done
     fi
     if (( ARG_VERBOSE > 0 ))
     then
-        print - "$*" | while read LOG_LINE
+        print - "$*" | while read -r LOG_LINE
         do
             # check for leading log sigils and retain them
             case "${LOG_LINE}" in
@@ -996,7 +1014,7 @@ if [[ -n "${LOG_STDIN}" ]]
 then
     if (( ARG_LOG > 0 ))
     then
-        print - "${LOG_STDIN}" | while read LOG_LINE
+        print - "${LOG_STDIN}" | while read -r LOG_LINE
         do
             # check for leading log sigils and retain them
             case "${LOG_LINE}" in
@@ -1016,12 +1034,12 @@ then
                     LOG_SIGIL="INFO"
                     ;;
             esac
-            print "${NOW}: ${LOG_SIGIL}: [$$]:" "${LOG_LINE}" >>${LOG_FILE}
+            print "${NOW}: ${LOG_SIGIL}: [$$]:" "${LOG_LINE}" >>"${LOG_FILE}"
         done
     fi
     if (( ARG_VERBOSE > 0 ))
     then
-        print - "${LOG_STDIN}" | while read LOG_LINE
+        print - "${LOG_STDIN}" | while read -r LOG_LINE
         do
             # check for leading log sigils and retain them
             case "${LOG_LINE}" in
@@ -1041,7 +1059,7 @@ if [[ -n "$1" ]]
 then
     if (( ARG_LOG > 0 ))
     then
-        print - "$*" | while read LOG_LINE
+        print - "$*" | while read -r LOG_LINE
         do
             # check for leading log sigils and retain them
             case "${LOG_LINE}" in
@@ -1061,12 +1079,12 @@ then
                     LOG_SIGIL="INFO"
                     ;;
             esac
-            print "${NOW}: ${LOG_SIGIL}: [$$]:" "${LOG_LINE}" >>${LOG_FILE}
+            print "${NOW}: ${LOG_SIGIL}: [$$]:" "${LOG_LINE}" >>"${LOG_FILE}"
         done
     fi
     if (( ARG_VERBOSE > 0 ))
     then
-        print - "$*" | while read LOG_LINE
+        print - "$*" | while read -r LOG_LINE
         do
             case "${LOG_LINE}" in
                 INFO:*|WARN:*|ERROR*)
@@ -1107,7 +1125,7 @@ then
 fi
 
 # get aliases from alias line
-ALIASES_LINE=$(grep -E -e "^${NEEDLE}.*:" ${LOCAL_DIR}/alias 2>/dev/null | cut -f2 -d':' 2>/dev/null)
+ALIASES_LINE=$(grep -E -e "^${NEEDLE}.*:" "${LOCAL_DIR}/alias" 2>/dev/null | cut -f2 -d':' 2>/dev/null)
 
 if [[ -z "${ALIASES_LINE}" ]]
 then
@@ -1128,6 +1146,7 @@ do
         RECURSION_COUNT=$(( RECURSION_COUNT + 1 ))
         EXPANDED_ALIASES=$(resolve_alias "${ALIAS}" ${RECURSION_COUNT})
         RECURSION_COUNT=$(( RECURSION_COUNT - 1 ))
+        # shellcheck disable=SC2181
         if (( $? == 0 ))
         then
             if [[ -z "${ALIAS_LIST}" ]]
@@ -1166,18 +1185,20 @@ function merge_fragments
 # initialize temporary working copy (need be different for each background job)
 # do not use 'mktemp' here as we need a fixed file name
 TMP_MERGE_FILE="$1/fragments"
-: > ${TMP_MERGE_FILE}
-(( $? )) && die "unable to create temporary file for mangling of 'fragments' file"
+: > "${TMP_MERGE_FILE}"
+# shellcheck disable=SC2181
+(( $? > 0 )) && die "unable to create temporary file for mangling of 'fragments' file"
 
 log "fragments are stored in a DIRECTORY, first merging all fragments into ${TMP_MERGE_FILE}"
 # merge fragments with '%%%<file_name>' headers
-ls -1 ${FRAGS_DIR}/* | while read FILE
+# shellcheck disable=SC2012
+ls -1 "${FRAGS_DIR}"/* | while read -r FILE
 do
     # header first, file base name without extension
-    BASE_FILE=${FILE##*/}
-    print "%%%${BASE_FILE%%.*}" >>${TMP_MERGE_FILE}
+    BASE_FILE="${FILE##*/}"
+    print "%%%${BASE_FILE%%.*}" >>"${TMP_MERGE_FILE}"
     # content next
-    cat ${FILE} >>${TMP_MERGE_FILE}
+    cat "${FILE}" >>"${TMP_MERGE_FILE}"
 done
 
 # merge file should not be empty
@@ -1213,6 +1234,7 @@ do
     if (( IS_TARGET > 0 ))
     then
         EXPANDED_TARGETS=$(resolve_alias "${TARGET}" 0)
+        # shellcheck disable=SC2181
         if (( $? == 0 ))
         then
             if [[ -z "${TARGETS_LIST}" ]]
@@ -1236,6 +1258,7 @@ done
 # sort final output and hand it back to the caller
 print "${TARGETS_LIST}" | grep -v '^$' 2>/dev/null | sort -u 2>/dev/null
 
+# shellcheck disable=SC2086
 return $0
 }
 
@@ -1260,26 +1283,26 @@ TRANSFER_FILE="${TRANSFER_FILE%!*}"
 SOURCE_FILE="${TRANSFER_FILE##*/}"
 # shellcheck disable=SC2164
 OLD_PWD=$(pwd)
-cd ${TRANSFER_DIR} || return 1
+cd "${TRANSFER_DIR}" || return 1
 
 # transfer, (possibly) chmod the file to/on the target server (keep STDERR)
 if (( DO_SFTP_CHMOD > 1 ))
 then
-    sftp ${SFTP_ARGS} ${SUDO_TRANSFER_USER}@${TRANSFER_HOST} >/dev/null <<EOT
+    sftp ${SFTP_ARGS} "${SUDO_TRANSFER_USER}@${TRANSFER_HOST}" >/dev/null <<EOT
 cd ${REMOTE_DIR}
 put ${SOURCE_FILE}
 chmod ${TRANSFER_PERMS} ${SOURCE_FILE}
 EOT
     SFTP_RC=$?
 else
-    sftp ${SFTP_ARGS} ${SUDO_TRANSFER_USER}@${TRANSFER_HOST} >/dev/null <<EOT
+    sftp ${SFTP_ARGS} "${SUDO_TRANSFER_USER}@${TRANSFER_HOST}" >/dev/null <<EOT
 cd ${REMOTE_DIR}
 put ${SOURCE_FILE}
 EOT
     SFTP_RC=$?
 fi
 
-cd ${OLD_PWD} || return 1
+cd "${OLD_PWD}" || return 1
 
 return ${SFTP_RC}
 }
@@ -1306,6 +1329,7 @@ else
         return 1
     else
         log "SSH agent started on ${HOST_NAME}:"
+        # shellcheck disable=SC2086
         log "$(ps -fp ${SSH_AGENT_PID})"
     fi
 fi
@@ -1334,7 +1358,9 @@ if [[ -n "${SSH_AGENT_PID}" ]]
 then
     # SIGTERM
     log "stopping (TERM) process on ${HOST_NAME} with PID: ${SSH_AGENT_PID}"
+    # shellcheck disable=SC2086
     log "$(ps -fp ${SSH_AGENT_PID})"
+    # shellcheck disable=SC2086
     kill -s TERM ${SSH_AGENT_PID}
     sleep 3
 
@@ -1342,7 +1368,9 @@ then
     if (( $(pgrep -u "${USER}" ssh-agent | grep -c "${SSH_AGENT_PID}") ))
     then
         log "stopping (KILL) process on ${HOST_NAME} with PID: ${SSH_AGENT_PID}"
+        # shellcheck disable=SC2086
         log "$(ps -fp ${SSH_AGENT_PID})"
+        # shellcheck disable=SC2086
         kill -s kill ${SSH_AGENT_PID}
     fi
     sleep 3
@@ -1371,8 +1399,9 @@ typeset UPDATE_OPTS=""
 typeset RC=0
 
 # convert line to hostname
-SERVER=${SERVER%%;*}
-resolve_host ${SERVER}
+SERVER="${SERVER%%;*}"
+resolve_host "${SERVER}"
+# shellcheck disable=SC2181
 if (( $? > 0 ))
 then
     warn "could not lookup host ${SERVER}, skipping"
@@ -1388,25 +1417,29 @@ log "setting SUDO controls on ${SERVER} ..."
 if [[ -z "${SUDO_UPDATE_USER}" ]]
 then
     # own user w/ sudo
-    ( RC=0; ssh ${SSH_ARGS} ${SERVER} sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --update ${UPDATE_OPTS};
-      print "$?" > ${TMP_RC_FILE}; exit
-    ) 2>&1 | logc
+    # shellcheck disable=SC2029
+    ( RC=0; ssh ${SSH_ARGS} "${SERVER}" "sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --update ${UPDATE_OPTS}";
+      print "$?" > "${TMP_RC_FILE}"; exit
+    ) 2>&1 | logc ""
 elif [[ "${SUDO_UPDATE_USER}" != "root" ]]
 then
     # other user w/ sudo
-    ( RC=0; ssh ${SSH_ARGS} ${SUDO_UPDATE_USER}@${SERVER} sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --update ${UPDATE_OPTS};
-      print "$?" > ${TMP_RC_FILE}; exit
-    ) 2>&1 | logc
+    # shellcheck disable=SC2029
+    ( RC=0; ssh ${SSH_ARGS} "${SUDO_UPDATE_USER}@${SERVER}" "sudo -n ${REMOTE_DIR}/${SCRIPT_NAME} --update ${UPDATE_OPTS}";
+      print "$?" > "${TMP_RC_FILE}"; exit
+    ) 2>&1 | logc ""
 else
     # root user w/o sudo
-    ( RC=0; ssh ${SSH_ARGS} root@${SERVER} ${REMOTE_DIR}/${SCRIPT_NAME} --update ${UPDATE_OPTS};
-      print "$?" > ${TMP_RC_FILE}; exit
-    ) 2>&1 | logc
+    # shellcheck disable=SC2029
+    ( RC=0; ssh ${SSH_ARGS} "root@${SERVER} ${REMOTE_DIR}/${SCRIPT_NAME} --update ${UPDATE_OPTS}";
+      print "$?" > "${TMP_RC_FILE}"; exit
+    ) 2>&1 | logc ""
 fi
 
 # fetch return code from subshell
-RC="$(< ${TMP_RC_FILE})"
+RC=$(< "${TMP_RC_FILE}")
 
+# shellcheck disable=SC2086
 return ${RC}
 }
 
@@ -1420,8 +1453,9 @@ typeset UPDATE_OPTS=""
 typeset RC=0
 
 # convert line to hostname
-SERVER=${SERVER%%;*}
-resolve_host ${SERVER}
+SERVER="${SERVER%%;*}"
+resolve_host "${SERVER}"
+# shellcheck disable=SC2181
 if (( $? > 0 ))
 then
     warn "could not lookup host ${SERVER}, skipping"
@@ -1434,13 +1468,15 @@ then
 fi
 
 log "applying SUDO controls on ${SERVER} in slave mode, this may take a while ..."
-( RC=0; ssh -A ${SSH_ARGS} ${SERVER} ${REMOTE_DIR}/${SCRIPT_NAME} --apply ${UPDATE_OPTS};
-      print "$?" > ${TMP_RC_FILE}; exit
-) 2>&1 | logc
+# shellcheck disable=SC2029
+( RC=0; ssh -A ${SSH_ARGS} "${SERVER}" "${REMOTE_DIR}/${SCRIPT_NAME} --apply ${UPDATE_OPTS}";
+      print "$?" > "${TMP_RC_FILE}"; exit
+) 2>&1 | logc ""
 
 # fetch return code from subshell
-RC="$(< ${TMP_RC_FILE})"
+RC=$(< "${TMP_RC_FILE}")
 
+# shellcheck disable=SC2086
 return ${RC}
 }
 
@@ -1461,6 +1497,7 @@ do
     do
         shift
         # child is still alive?
+        # shellcheck disable=SC2086
         if kill -0 ${PID} 2>/dev/null
         then
             (( ARG_DEBUG > 0 )) && print -u2 "DEBUG: ${PID} is still alive"
@@ -1468,6 +1505,7 @@ do
         # wait for sigchild, catching child exit codes is unreliable because
         # the child might have already ended before we get here (caveat emptor)
         else
+            # shellcheck disable=SC2086
             wait ${PID}
             RC=$?
             if (( RC > 0 ))
@@ -1499,7 +1537,7 @@ if [[ -n "$1" ]]
 then
     if (( ARG_LOG > 0 ))
     then
-        print - "$*" | while read LOG_LINE
+        print - "$*" | while read -r LOG_LINE
         do
             # check for leading log sigils and retain them
             case "${LOG_LINE}" in
@@ -1519,12 +1557,12 @@ then
                     LOG_SIGIL="WARN"
                     ;;
             esac
-            print "${NOW}: ${LOG_SIGIL}: [$$]:" "${LOG_LINE}" >>${LOG_FILE}
+            print "${NOW}: ${LOG_SIGIL}: [$$]:" "${LOG_LINE}" >>"${LOG_FILE}"
         done
     fi
     if (( ARG_VERBOSE > 0 ))
     then
-        print - "$*" | while read LOG_LINE
+        print - "$*" | while read -r LOG_LINE
         do
             # check for leading log sigils and retain them
             case "${LOG_LINE}" in
@@ -1762,6 +1800,7 @@ case ${ARG_ACTION} in
         then
             die "no targets to process"
         else
+            # shellcheck disable=SC2086
             log "processing targets: $(print ${CLIENTS} | tr -s '\n' ' ' 2>/dev/null)"
         fi
 
@@ -1769,6 +1808,7 @@ case ${ARG_ACTION} in
         if (( DO_SSH_AGENT > 0 && CAN_START_AGENT > 0 ))
         then
             start_ssh_agent
+            # shellcheck disable=SC2181
             if (( $? > 0 ))
             then
                 die "problem with launching an SSH agent, bailing out"
@@ -1781,9 +1821,9 @@ case ${ARG_ACTION} in
         do
             if (( DO_SLAVE > 0 ))
             then
-                update2slave ${CLIENT} &
+                update2slave "${CLIENT}" &
             else
-                update2host ${CLIENT} &
+                update2host "${CLIENT}" &
             fi
             PID=$!
             log "updating ${CLIENT} in background [PID=${PID}] ..."
@@ -1793,6 +1833,7 @@ case ${ARG_ACTION} in
             if (( COUNT <= 0 ))
             then
                 # wait until all background processes are completed
+                # shellcheck disable=SC2086
                 wait_for_children ${PIDS} || \
                     warn "$? background jobs (possibly) failed to complete correctly"
                 PIDS=''
@@ -1801,6 +1842,7 @@ case ${ARG_ACTION} in
             fi
         done
         # final wait for background processes to be finished completely
+        # shellcheck disable=SC2086
         wait_for_children ${PIDS} || \
             warn "$? background jobs (possibly) failed to complete correctly"
         # stop SSH agent if needed
@@ -1822,6 +1864,7 @@ case ${ARG_ACTION} in
         then
             die "no targets to process"
         else
+            # shellcheck disable=SC2086
             log "processing targets: $(print ${CLIENTS} | tr -s '\n' ' ' 2>/dev/null)"
         fi
 
@@ -1829,6 +1872,7 @@ case ${ARG_ACTION} in
         if (( DO_SSH_AGENT > 0 && CAN_START_AGENT > 0 ))
         then
             start_ssh_agent
+            # shellcheck disable=SC2181
             if (( $? > 0 ))
             then
                 die "problem with launching an SSH agent, bailing out"
@@ -1841,9 +1885,9 @@ case ${ARG_ACTION} in
         do
             if (( DO_SLAVE ))
             then
-                distribute2slave ${CLIENT} &
+                distribute2slave "${CLIENT}" &
             else
-                distribute2host ${CLIENT} &
+                distribute2host "${CLIENT}" &
             fi
             PID=$!
             log "copying/distributing to ${CLIENT} in background [PID=${PID}] ..."
@@ -1853,6 +1897,7 @@ case ${ARG_ACTION} in
             if (( COUNT <= 0 ))
             then
                 # wait until all background processes are completed
+                # shellcheck disable=SC2086
                 wait_for_children ${PIDS} || \
                     warn "$? background jobs (possibly) failed to complete correctly"
                 PIDS=''
@@ -1861,6 +1906,7 @@ case ${ARG_ACTION} in
             fi
         done
         # final wait for background processes to be finished completely
+        # shellcheck disable=SC2086
         wait_for_children ${PIDS} || \
             warn "$? background jobs (possibly) failed to complete correctly"
         # stop SSH agent if needed
@@ -1874,28 +1920,32 @@ case ${ARG_ACTION} in
         if [[ -n "${FRAGS_DIR}" ]]
         then
             TMP_WORK_DIR="${TMP_DIR}/$0.${RANDOM}"
-            mkdir -p ${TMP_WORK_DIR}
-            if (( $? ))
+            mkdir -p "${TMP_WORK_DIR}"
+            # shellcheck disable=SC2181
+            if (( $? > 0 ))
             then
                 die "unable to create temporary directory ${TMP_WORK_DIR} for mangling of 'fragments' file"
             fi
-            merge_fragments ${TMP_WORK_DIR}
+            merge_fragments "${TMP_WORK_DIR}"
         fi
         # remove '%%%' headers
         TMP_SCAN_FILE=$(mktemp)
-        (( $? )) && die "unable to create temporary file for validation of 'fragments' file(s)"
+        # shellcheck disable=SC2181
+        (( $? > 0 )) && die "unable to create temporary file for validation of 'fragments' file(s)"
         if [[ -n "${FRAGS_DIR}" ]]
         then
-            cat ${TMP_MERGE_FILE} | grep -v '^%%%' >${TMP_SCAN_FILE}
-            [[ -d ${TMP_WORK_DIR} ]] && rm -rf ${TMP_WORK_DIR} 2>/dev/null
+            grep -v '^%%%' "${TMP_MERGE_FILE}" 2>/dev/null >"${TMP_SCAN_FILE}"
+            [[ -d "${TMP_WORK_DIR}" ]] && rm -rf "${TMP_WORK_DIR}" 2>/dev/null
         else
-            cat ${FRAGS_FILE} | grep -v '^%%%' >${TMP_SCAN_FILE}
+            grep -v '^%%%' "${FRAGS_FILE}" 2>/dev/null >"${TMP_SCAN_FILE}"
         fi
         # run syntax check
         if (( CAN_CHECK_SYNTAX ))
         then
+            # shellcheck disable=SC2086
             CHECK_RESULT="$(${VISUDO_BIN} -c -f ${TMP_SCAN_FILE} 2>/dev/null)"
-            if (( $? ))
+            # shellcheck disable=SC2181
+            if (( $? > 0 ))
             then
                 warn "SUDO syntax check: FAILED: ${CHECK_RESULT})"
                 CAN_REMOVE_TEMP=0
@@ -1907,11 +1957,11 @@ case ${ARG_ACTION} in
         ;;
     4)  # apply SUDO controls locally (root user)
         log "ACTION: apply SUDO controls locally"
-        ( RC=0; ${LOCAL_DIR}/update_sudo.pl ${SUDO_UPDATE_OPTS};
-          print "$?" > ${TMP_RC_FILE}; exit
-        ) 2>&1 | logc
+        ( RC=0; "${LOCAL_DIR}/update_sudo.pl" ${SUDO_UPDATE_OPTS};
+          print "$?" > "${TMP_RC_FILE}"; exit
+        ) 2>&1 | logc ""
         # fetch return code from subshell
-        RC="$(< ${TMP_RC_FILE})"
+        RC=$(< "${TMP_RC_FILE}")
         if (( RC > 0 ))
         then
             die "failed to apply SUDO controls locally [RC=${RC}]"
@@ -2043,6 +2093,7 @@ case ${ARG_ACTION} in
         then
             die "no targets to process"
         else
+            # shellcheck disable=SC2086
             log "processing targets: $(print ${CLIENTS} | tr -s '\n' ' ' 2>/dev/null)"
         fi
 
@@ -2050,6 +2101,7 @@ case ${ARG_ACTION} in
         if (( DO_SSH_AGENT > 0 && CAN_START_AGENT > 0 ))
         then
             start_ssh_agent
+            # shellcheck disable=SC2181
             if (( $? > 0 ))
             then
                 die "problem with launching an SSH agent, bailing out"
@@ -2062,9 +2114,9 @@ case ${ARG_ACTION} in
         do
             if (( DO_SLAVE > 0 ))
             then
-                fix2slave ${CLIENT} "${FIX_DIR}" "${SUDO_UPDATE_USER}" &
+                fix2slave "${CLIENT}" "${FIX_DIR}" "${SUDO_UPDATE_USER}" &
             else
-                fix2host ${CLIENT} "${FIX_DIR}" "${SUDO_UPDATE_USER}" &
+                fix2host "${CLIENT}" "${FIX_DIR}" "${SUDO_UPDATE_USER}" &
             fi
             PID=$!
             log "fixing SUDO controls on ${CLIENT} in background [PID=${PID}] ..."
@@ -2074,6 +2126,7 @@ case ${ARG_ACTION} in
             if (( COUNT <= 0 ))
             then
                 # wait until all background processes are completed
+                # shellcheck disable=SC2086
                 wait_for_children ${PIDS} || \
                     warn "$? background jobs (possibly) failed to complete correctly"
                 PIDS=''
@@ -2091,7 +2144,7 @@ case ${ARG_ACTION} in
         ;;
     7)  # dump the configuration namespace
         log "ACTION: dumping the global grants namespace with resolved aliases ..."
-        ${LOCAL_DIR}/update_sudo.pl --preview --global
+        "${LOCAL_DIR}/update_sudo.pl" --preview --global
         log "finished dumping the global namespace"
         ;;
     8)  # check syntax of the grants/alias files
@@ -2112,16 +2165,21 @@ case ${ARG_ACTION} in
             # fragments files
             if [[ -n "${FRAGS_DIR}" ]]
             then
+                # shellcheck disable=SC2086
                 log "$(tar -cvf ${BACKUP_TAR_FILE} ${FRAGS_DIR} 2>/dev/null)"
             else
+                # shellcheck disable=SC2086
                 log "$(tar -cvf ${BACKUP_TAR_FILE} ${FRAGS_FILE} 2>/dev/null)"
             fi
             # configuration files
             for FILE in "${LOCAL_DIR}/grants" "${LOCAL_DIR}/alias ${LOCAL_DIR}/targets"
             do
+                # shellcheck disable=SC2086
                 log "$(tar -rvf ${BACKUP_TAR_FILE} ${FILE} 2>/dev/null)"
             done
+            # shellcheck disable=SC2086
             log "$(gzip ${BACKUP_TAR_FILE} 2>/dev/null)"
+            # shellcheck disable=SC2086
             log "resulting backup file is: $(ls -1 ${BACKUP_TAR_FILE}* 2>/dev/null)"
         else
             die "could not find backup directory ${BACKUP_DIR}. Host is not an SUDO master?"
@@ -2137,6 +2195,7 @@ case ${ARG_ACTION} in
             then
                 die "no targets to process"
             else
+                # shellcheck disable=SC2086
                 log "processing targets: $(print ${CLIENTS} | tr -s '\n' ' ' 2>/dev/null)"
             fi
             print "${CLIENTS}" | ${SSH_KEYSCAN_BIN} ${SSH_KEYSCAN_ARGS} -f - 2>/dev/null
@@ -2146,10 +2205,12 @@ case ${ARG_ACTION} in
     11) # resolve an alias
         log "ACTION: resolving alias ${ARG_ALIAS} ..."
         RESOLVE_ALIAS=$(resolve_alias "${ARG_ALIAS}" 0)
+        # shellcheck disable=SC2181
         if (( $? > 0 )) && [[ -z "${RESOLVE_ALIAS}" ]]
         then
             die "alias ${ARG_ALIAS} did not resolve correctly"
         else
+            # shellcheck disable=SC2086
             log "alias ${ARG_ALIAS} resolves to: $(print ${RESOLVE_ALIAS} | tr -s '\n' ' ' 2>/dev/null)"
         fi
         log "finished resolving alias"
