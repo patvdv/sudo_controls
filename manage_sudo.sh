@@ -42,7 +42,7 @@
 # or LOCAL_CONFIG_FILE instead
 
 # define the version (YYYY-MM-DD)
-typeset -r SCRIPT_VERSION="2020-12-30"
+typeset -r SCRIPT_VERSION="2021-01-09"
 # name of the global configuration file (script)
 typeset -r GLOBAL_CONFIG_FILE="manage_sudo.conf"
 # name of the local configuration file (script)
@@ -512,10 +512,17 @@ typeset CHECK_LINE="$1"
 typeset CHECK_DELIM="$2"
 typeset NUM_FIELDS=0
 
-NUM_FIELDS=$(print "${CHECK_LINE}" | awk -F "${CHECK_DELIM}" '{ print NF }' 2>/dev/null)
+case "${OS_NAME}" in
+    HP-UX)
+        # wark around old awk's limit on input of max 3000 bytes
+        NUM_FIELDS=$(print "${CHECK_LINE}" | tr "${CHECK_DELIM}" '\n' 2>/dev/null | wc -l 2>/dev/null)
+        ;;
+    *)
+        NUM_FIELDS=$(print "${CHECK_LINE}" | awk -F "${CHECK_DELIM}" '{ print NF }' 2>/dev/null)
+        ;;
+esac
 
-# shellcheck disable=SC2086
-print ${NUM_FIELDS}
+print "${NUM_FIELDS}"
 
 return 0
 }
