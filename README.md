@@ -30,6 +30,6 @@ SUDO Controls is a light-weight **SUDO fragments/rules** distribution & manageme
 
 * is **easy** to **configure** and **maintain** (command-line based): the configuration is stored in a limited number of flat files and be easily updated. A very rudimentary syntax checking facility is also available to check the consistency of the most important (master) configuration files.
 
-More documentation can be found at http://www.kudos.be/Projects/SUDO_Controls.html
+More documentation can be found at <http://www.kudos.be/sudo_controls/>
 
 *Logo created with [Free Logo Maker](https://logomakr.com)*
