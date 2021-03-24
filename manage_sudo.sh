@@ -42,7 +42,7 @@
 # or LOCAL_CONFIG_FILE instead
 
 # define the version (YYYY-MM-DD)
-typeset -r SCRIPT_VERSION="2021-01-11"
+typeset -r SCRIPT_VERSION="2021-03-24"
 # name of the global configuration file (script)
 typeset -r GLOBAL_CONFIG_FILE="manage_sudo.conf"
 # name of the local configuration file (script)
@@ -1006,10 +1006,10 @@ return 0
 
 # -----------------------------------------------------------------------------
 # log an INFO: message (via STDIN). Do not use when STDIN is still open
-(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
 # shellcheck disable=SC2120
 function logc
 {
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
 typeset NOW="$(date '+%d-%h-%Y %H:%M:%S')"
 typeset LOG_STDIN=""
 typeset LOG_LINE=""
