@@ -1006,10 +1006,10 @@ return 0
 
 # -----------------------------------------------------------------------------
 # log an INFO: message (via STDIN). Do not use when STDIN is still open
-(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
 # shellcheck disable=SC2120
 function logc
 {
+(( ARG_DEBUG > 0 )) && set "${DEBUG_OPTS}"
 typeset NOW="$(date '+%d-%h-%Y %H:%M:%S')"
 typeset LOG_STDIN=""
 typeset LOG_LINE=""
