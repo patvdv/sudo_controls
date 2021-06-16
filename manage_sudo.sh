@@ -42,7 +42,7 @@
 # or LOCAL_CONFIG_FILE instead
 
 # define the version (YYYY-MM-DD)
-typeset -r SCRIPT_VERSION="2021-01-11"
+typeset -r SCRIPT_VERSION="2021-06-17"
 # name of the global configuration file (script)
 typeset -r GLOBAL_CONFIG_FILE="manage_sudo.conf"
 # name of the local configuration file (script)
@@ -422,7 +422,7 @@ fi
 if (( DO_SSH_AGENT ))
 then
     # ssh-agent
-    which ssh-agent >/dev/null 2>/dev/null
+    command -v ssh-agent >/dev/null 2>/dev/null
     # shellcheck disable=SC2181
     if (( $? > 0 ))
     then
@@ -1118,7 +1118,7 @@ typeset RECURSION_COUNT=$2
 typeset ALIASES_LINE=""
 typeset ALIAS_LIST=""
 typeset ALIAS=""
-typeset IS_ALIAS=0
+typeset IS_GROUP=0
 typeset EXPANDED_ALIASES=""
 
 # check MAX_RECURSION to avoid segmentation faults
@@ -1146,11 +1146,11 @@ fi
 # expand alias line into individual aliases
 # do not use variable substition (>=ksh93) instead use the uglier while loop solution
 # (hint: don't use a for loop as aliases may contain spaces!)
-print "${ALIASES_LINE}"| while IFS=',' read -r ALIAS
+print "${ALIASES_LINE}"| tr -s ',' '\n' 2>/dev/null | while read -r ALIAS
 do
     # recurse if the alias is a group
-    IS_ALIAS=$(print "${ALIAS}" | grep -c -E -e '^\@' 2>/dev/null)
-    if (( IS_ALIAS > 0 ))
+    IS_GROUP=$(print "${ALIAS}" | grep -c -E -e '^\@' 2>/dev/null)
+    if (( IS_GROUP > 0 ))
     then
         RECURSION_COUNT=$(( RECURSION_COUNT + 1 ))
         EXPANDED_ALIASES=$(resolve_alias "${ALIAS}" ${RECURSION_COUNT})
@@ -1162,7 +1162,8 @@ do
             then
             	ALIAS_LIST="${EXPANDED_ALIASES}"
             else
-            	ALIAS_LIST="${ALIAS_LIST}\n${EXPANDED_ALIASES}"
+            	ALIAS_LIST="${ALIAS_LIST}
+${EXPANDED_ALIASES}"
             fi
         # if the recursion fails, return the current output list
         # and go back up into the recursion tree
@@ -1176,7 +1177,8 @@ do
         then
             ALIAS_LIST="${ALIAS}"
         else
-            ALIAS_LIST="${ALIAS_LIST}\n${ALIAS}"
+            ALIAS_LIST="${ALIAS_LIST}
+${ALIAS}"
         fi
     fi
 done
@@ -1234,13 +1236,13 @@ function resolve_targets
 typeset TARGETS_LIST=""
 typeset EXPANDED_TARGETS=""
 typeset TARGET=""
-typeset IS_TARGET=0
+typeset IS_GROUP=0
 
 grep -v -E -e '^#' -e '^$' "${TARGETS_FILE}" 2>/dev/null | while read -r TARGET
 do
     # resolve group target
-    IS_TARGET=$(print "${TARGET}" | grep -c -E -e '^\@' 2>/dev/null)
-    if (( IS_TARGET > 0 ))
+    IS_GROUP=$(print "${TARGET}" | grep -c -E -e '^\@' 2>/dev/null)
+    if (( IS_GROUP > 0 ))
     then
         EXPANDED_TARGETS=$(resolve_alias "${TARGET}" 0)
         # shellcheck disable=SC2181
@@ -1250,7 +1252,8 @@ do
             then
                 TARGETS_LIST="${EXPANDED_TARGETS}"
             else
-                TARGETS_LIST="${TARGETS_LIST}\n${EXPANDED_TARGETS}"
+                TARGETS_LIST="${TARGETS_LIST}
+${EXPANDED_TARGETS}"
             fi
         fi
     # add individual target
@@ -1259,7 +1262,8 @@ do
         then
             TARGETS_LIST="${TARGET}"
         else
-            TARGETS_LIST="${TARGETS_LIST}\n${TARGET}"
+            TARGETS_LIST="${TARGETS_LIST}
+${TARGET}"
         fi
     fi
 done
